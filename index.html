@@ -1,109 +1,39 @@
-<!DOCTYPE html>
-<html class='v2' dir='ltr' lang='vi'>
-    <style>
-     body{
-          -webkit-touch-callout: none;
-          -webkit-user-select: none;
-          -moz-user-select: none;
-          -ms-user-select: none;
-          -o-user-select: none;
-           user-select: none;
-         }
-</style>
-        
-<script>
-     function killCopy(e){
-           return false;
-     }
-
-     function reEnable(){
-           return true;
-     }
-
-     document.onselectstart=new Function ("return false");
-
-     if (window.sidebar){
-           document.onmousedown=killCopy;
-           document.onclick=reEnable;
-     }
-</script>
-<script type="text/JavaScript">
-var message="NoRightClicking"; function defeatIE() {if (document.all) {(message);return false;}} function defeatNS(e) {if (document.layers||(document.getElementById&&!document.all)) { if (e.which==2||e.which==3) {(message);return false;}}} if (document.layers) {document.captureEvents(Event.MOUSEDOWN);document.onmousedown=defeatNS;} else{document.onmouseup=defeatNS;document.oncontextmenu=defeatIE;} document.oncontextmenu=new Function("return false") 
-</script>
-<style>
-body{
-   -webkit-touch-callout: none;
-   -webkit-user-select: none; 
-   -moz-user-select: none;    
-   -ms-user-select: none;     
-   -o-user-select: none;
-    user-select: none;
-}
-</style>
-<script src="http://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script>
-<script>
-document.onkeydown = function(e) {
-        if (e.ctrlKey && 
-            (e.keyCode === 67 || 
-             e.keyCode === 86 || 
-             e.keyCode === 85 || 
-             e.keyCode === 117)) {
-            return false;
-        } else {
-            return true;
-        }
-};
-$(document).keypress("u",function(e) {
-  if(e.ctrlKey)
-  {
-return false;
-}
-else
-{
-return true;
-}
-});
-</script>
-<head>
-<link href='https://fonts.googleapis.com/css?family=Lobster' rel='stylesheet'/>
-<link href='https://fonts.googleapis.com/css?family=Roboto' rel='stylesheet'/>
-<link href='//maxcdn.bootstrapcdn.com/font-awesome/4.7.0/css/font-awesome.min.css' rel='stylesheet'/>
-<link href='https://cdnjs.cloudflare.com/ajax/libs/animate.css/3.7.2/animate.min.css' rel='stylesheet'/>
-<link href='https://fonts.googleapis.com/css2?family=Sacramento' rel='stylesheet'/>
-<script src='https://ajax.googleapis.com/ajax/libs/jquery/3.3.1/jquery.min.js'></script>
-<meta charset='UTF-8'/>
-<meta content='width=device-width, user-scalable=no, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0' name='viewport'/>
-<link href='' rel='icon' type='image/x-icon'/>
-<title>Tớ Là Nhân:3</title>
+<html class="v2 dtfhfykei idc0_341" dir="ltr" lang="vi"><head>
+<link href="https://fonts.googleapis.com/css?family=Lobster" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css?family=Roboto" rel="stylesheet">
+<link href="//maxcdn.bootstrapcdn.com/font-awesome/4.7.0/css/font-awesome.min.css" rel="stylesheet">
+<link href="https://cdnjs.cloudflare.com/ajax/libs/animate.css/3.7.2/animate.min.css" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Sacramento" rel="stylesheet">
+<script src="https://ajax.googleapis.com/ajax/libs/jquery/3.3.1/jquery.min.js"></script>
+<meta charset="UTF-8">
+<meta content="width=device-width, user-scalable=no, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0" name="viewport">
+<title>Chào bạn !</title>
 <!-- Meta Title -->
-<meta content='Tớ Là Nhân:3'  property='og:title'/>
-<meta content='Tớ Là Nhân:3' property='og:image:alt'/>
-<meta content='Tớ Là Nhân:3' name='twitter:title'/>
-<meta content='Tớ Là Nhân:3' name='twitter:image:alt'/>
-<meta content='Chào bạn !' property='og:site_name'/>
-<!-- Meta Image -->
-<meta content='https://i.imgur.com/Kb7RNbG.png' property='og:image'/>
-<meta content='https://i.imgur.com/Kb7RNbG.png' name='twitter:image'/>
+<meta content="Chào bạn !" property="og:title">
+<meta content="Chào bạn !" property="og:image:alt">
+<meta content="Chào bạn !" name="twitter:title">
+<meta content="Chào bạn !" name="twitter:image:alt">
+<meta content="Chào bạn !" property="og:site_name">
 <!-- Meta Description -->
-<meta content='Hi ! I&#39;am tnhan' name='description'/>
-<meta content='Hi ! I&#39;am tnhan' property='og:description'/>
-<meta content='Hi ! I&#39;am tnhan' name='twitter:description'/>
+<meta content="Hi ! I'am Nhân" name="description">
+<meta content="Hi ! I'am Nhân" property="og:description">
+<meta content="Hi ! I'am Nhân" name="twitter:description">
 <!-- Meta Keywords -->
-<meta content='Tớ Là Nhân:3, ' name='keywords'/>
-<meta content='Tớ Là Nhân:3' property='article:tag'/>
+<meta content="Chào bạn !, " name="keywords">
+<meta content="Chào bạn !" property="article:tag">
 <!-- Meta Link -->
-<link href='https://thiennhan.me/' rel='canonical'/>
-<link href='https://thiennhan.me/' hreflang='x-default' rel='alternate'/>
-<meta content='https://thiennhan.me/' property='og:url'/>
+<link href="http://thiennhan.me/" rel="canonical">
+<link href="http://thiennhan.me/" hreflang="x-default" rel="alternate">
+<meta content="http://thiennhan.me/" property="og:url">
 <!-- Meta Theme Color -->
-<meta content='#fff' name='theme-color'/>
-<meta content='#fff' name='msapplication-navbutton-color'/>
-<meta content='#fff' name='apple-mobile-web-app-status-bar-style'/>
-<meta content='yes' name='apple-mobile-web-app-capable'/>
+<meta content="#fff" name="theme-color">
+<meta content="#fff" name="msapplication-navbutton-color">
+<meta content="#fff" name="apple-mobile-web-app-status-bar-style">
+<meta content="yes" name="apple-mobile-web-app-capable">
 <style>
 html,body{margin:0;padding:0;min-height:100vh;overflow:hidden;overflow-y:auto}
 *{box-sizing:border-box;-moz-box-sizing:border-box;-ms-box-sizing:border-box;text-rendering:geometricPrecision}
-#intro_homepage{display:flex;justify-content:center;align-items:center;position:relative;width:100%;height:100vh;margin:0!important;padding:0!important;z-index:999;background:url(https://lh3.googleusercontent.com/blogger_img_proxy/ABLy4EzmdS8cL-DDNlfsmdx9nu95UpTctlN1HAyLKkatFjJfoFg3FMpZz3HLp8_jtl8LE1Rre7RjrPfEKLK6l_c6hQkcUwbGo5f_NMEywfpz-w9b0CNJJpS0cplVk0BJlwEo=s0-d) no-repeat center center!important;background-size:cover!important}
+#intro_homepage{display:flex;justify-content:center;align-items:center;position:relative;width:100%;height:100vh;margin:0!important;padding:0!important;z-index:999;background:url(https://lh3.googleusercontent.com/blogger_img_proxy/ABLy4EyPwch-4oc1AVTae1g8uQLDjx2TYP9IqAsGyZLnim4HHTSNDYl91M9VCVqaTqJ_gf6q2AaxATSknG6uOLsuKWCVtuLLFowjxbDqQUP9tM3qyaN3WTZD7-S1RTa2-_Bj=s0-d) no-repeat center center!important;background-size:cover!important}
 #intro_homepage:before{content:'';opacity:1;position:absolute;top:0;right:0;bottom:0;left:0;z-index:0;background:linear-gradient(transparent,#050a18)}
 #intro_homepage:after{content:'';z-index:0;position:absolute;top:0;right:0;bottom:0;left:0;background-image:linear-gradient(transparent,rgba(51,51,51,0.15) 0%,rgba(12,23,36,0.4))}
 #intro_homepage .coppy-right p{color:#fff;,font-size:25px;position:fixed;bottom:10px;left:50%;transform:translateX(-50%);font-family:'Sacramento',cursive}
@@ -180,60 +110,60 @@ html,body{margin:0;padding:0;min-height:100vh;overflow:hidden;overflow-y:auto}
 .bg-header-bubbles{top:0;left:0;width:100%;height:0;z-index:0}.bg-header-bubbles li{position:absolute;list-style-type:none!important;display:block;width:40px;height:40px;background-color:rgba(255,255,255,0.15);bottom:-100px;-webkit-animation:square 25s infinite;animation:square 25s infinite;-webkit-transition-timing-function:linear;transition-timing-function:linear}.bg-header-bubbles li:nth-child(1){left:10%}.bg-header-bubbles li:nth-child(2){left:20%;width:65px;height:65px;-webkit-animation-delay:2s;animation-delay:2s;-webkit-animation-duration:17s;animation-duration:17s}.bg-header-bubbles li:nth-child(3){left:25%;-webkit-animation-delay:4s;animation-delay:4s}.bg-header-bubbles li:nth-child(4){left:40%;width:60px;height:60px;-webkit-animation-duration:22s;animation-duration:22s;background-color:rgba(255,255,255,0.25)}.bg-header-bubbles li:nth-child(5){left:70%}.bg-header-bubbles li:nth-child(6){left:80%;width:90px;height:90px;-webkit-animation-delay:3s;animation-delay:3s;background-color:rgba(255,255,255,0.2)}.bg-header-bubbles li:nth-child(7){left:32%;width:100px;height:100px;-webkit-animation-delay:7s;animation-delay:7s}.bg-header-bubbles li:nth-child(8){left:55%;width:20px;height:20px;-webkit-animation-delay:15s;animation-delay:15s;-webkit-animation-duration:40s;animation-duration:40s}.bg-header-bubbles li:nth-child(9){left:25%;width:10px;height:10px;-webkit-animation-delay:2s;animation-delay:2s;-webkit-animation-duration:40s;animation-duration:40s;background-color:rgba(255,255,255,0.3)}.bg-header-bubbles li:nth-child(10){left:90%;width:80px;height:80px;-webkit-animation-delay:11s;animation-delay:11s}@-webkit-keyframes square {0%{-webkit-transform:translateY(0);transform:translateY(0)}100%{-webkit-transform:translateY(-700px) rotate(600deg);transform:translateY(-700px) rotate(600deg)}}@keyframes square {0%{-webkit-transform:translateY(0);transform:translateY(0)}100%{-webkit-transform:translateY(-700px) rotate(600deg);transform:translateY(-700px) rotate(600deg)}}
 </style>
 <script>/*<![CDATA[*/ var uri = window.location.toString(); if (uri.indexOf("%3D","%3D") > 0) { var clean_uri = uri.substring(0, uri.indexOf("%3D")); window.history.replaceState({}, document.title, clean_uri);} var uri = window.location.toString(); if (uri.indexOf("%3D%3D","%3D%3D") > 0) { var clean_uri = uri.substring(0, uri.indexOf("%3D%3D")); window.history.replaceState({}, document.title, clean_uri);} var uri = window.location.toString(); if (uri.indexOf("&m=1","&m=1") > 0) { var clean_uri = uri.substring(0, uri.indexOf("&m=1")); window.history.replaceState({}, document.title, clean_uri); } var uri = window.location.toString(); if (uri.indexOf("?m=1","?m=1") > 0) { var clean_uri = uri.substring(0, uri.indexOf("?m=1"));window.history.replaceState({}, document.title, clean_uri);}; var protocol=window.location.protocol.replace(/\:/g,''); if(protocol=='http'){ var url=window.location.href.replace('http','https'); window.location.replace(url);} /*]]>*/</script>
-<meta name='google-adsense-platform-account' content='ca-host-pub-1556223355139109'/>
-<meta name='google-adsense-platform-domain' content='blogspot.com'/>
+<meta name="google-adsense-platform-account" content="ca-host-pub-1556223355139109">
+<meta name="google-adsense-platform-domain" content="blogspot.com">
 
 </head>
-<body>
-<div id='loader-wrapper'>
-<div id='loader'></div>
-<div class='loader-section section-left'></div>
-<div class='loader-section section-right'></div>
+<body class="loaded">
+<div id="loader-wrapper">
+<div id="loader"></div>
+<div class="loader-section section-left"></div>
+<div class="loader-section section-right"></div>
 </div>
-<div id='intro_homepage'>
-<div class='meta_'>
-<div class='intro_homepage_content'>
-<div class='intro_label'>
-<a class='dont-lamviec' href='https://www.facebook.com/tnhantl/' imageanchor='1'><img border='0' class='animated zoomIn' src='https://thuthuatnhanh.com/wp-content/uploads/2020/02/hinh-mat-cuoi-trang-den-de-thuong.jpg'/></a><br/><br/>
-<h2 class='_title glitch animated fadeInDown' data-text='Nguyễn Thiện Nhân'>Nguyễn Thiện Nhân</h2>
-<p class='animated fadeInRight'>Hãy sống là chính mình
-<br/>
-Bình thường nhưng không tầm thường...<i class='fa fa-play-circle-o' onclick='document.getElementById(&#39;audio5&#39;).play();' style='font-size:18px' title='play'></i>
-<audio id='audio5' preload='none'><source src='https://cdn.leanhduc.pro.vn/music/duong-toi-cho-em-ve-lofi-ver-buitruonglinh-x-freak-d.mp3' type='audio/mpeg'></source>Trình duyệt của bạn ko hỗ trợ thẻ audio, vui lòng cập nhật phiên bản mới nhất hoặc đổi trình duyệt.</audio>"</p>
+<div id="intro_homepage">
+<div class="meta_">
+<div class="intro_homepage_content">
+<div class="intro_label">
+<a class="dont-lamviec" href="https://www.facebook.com/SIIN.VN" imageanchor="1"><img border="0" class="animated zoomIn" src="https://1.bp.blogspot.com/-hTFdHkCqaDQ/YCHmK6HwwxI/AAAAAAAAHMQ/Tn2XmVpF3ncRlgezYkyt9GsHpc-ouURKQCLcBGAsYHQ/s422/938383067.jpg"></a><br><br>
+<h2 class="_title glitch animated fadeInDown" data-text="Trần Nhật Sinh">Trần Nhật Sinh</h2>
+<p class="animated fadeInRight">Hãy sống là chính mình
+<br>
+Bình thường nhưng không tầm thường...<i class="fa fa-play-circle-o" onclick="document.getElementById('audio5').play();" style="font-size:18px" title="play"></i>
+<audio id="audio5" preload="none"><source src="https://cdn.jsdelivr.net/gh/transinh085/trannhatsinhit.github.io/so.mp3" type="audio/mpeg">Trình duyệt của bạn ko hỗ trợ thẻ audio, vui lòng cập nhật phiên bản mới nhất hoặc đổi trình duyệt.</audio>"</p>
 </div>
-<br/>
-<div class='mxh'>
-<a href='//facebook.com/tnhantl/' rel='noopener' target='_blank' title='Theo dõi tôi trên Facebook'><i class='fa fa-facebook'></i></a>
-<a href='//instagram.com/tnhantl/' rel='noopener' target='_blank' title='Theo dõi tôi trên Instagram'><i class='fa fa-instagram'></i></a>
-<a href='//t.me/tnhantl' rel='noopener' target='_blank' title='Nhắn tin cho tôi'><i class='fa fa-telegram'></i></a>
-<a href='mailto:contact@thiennhan.studio' rel='noopener' target='_blank' title='Gửi email cho tôi'><i class='fa fa-envelope-o'></i></a>
+<br>
+<div class="mxh">
+<a href="//facebook.com/SIIN.VN" rel="noopener" target="_blank" title="Theo dõi tôi trên Facebook"><i class="fa fa-facebook"></i></a>
+<a href="//twitter.com/starsinhinfo" rel="noopener" target="_blank" title="Theo dõi tôi trên Twitter"><i class="fa fa-twitter-square"></i></a>
+<a href="tel:0387913347" rel="noopener" target="_blank" title="Gọi điện cho tôi"><i class="fa fa-phone"></i></a>
+<a href="mailto:transinh085@gmail.com" rel="noopener" target="_blank" title="Gửi email cho tôi"><i class="fa fa-envelope-o"></i></a>
 </div>
 </div></div>
-<div class='meta_'>
+<div class="meta_">
 </div>
-<div class='coppy-right'>
+<div class="coppy-right">
 <p>
-~ made with tnhan <i class='fa fa-heart animated infinite tada' style='animation-duration: 2s;color:red'></i>
+~ made with <i class="fa fa-heart animated infinite tada" style="animation-duration: 2s;color:red"></i> and <i class="fa fa-headphones animated infinite swing" style="color:#ff7062"></i>
 </p></div>
-<div class='panel-audo'>
-<div class='d-flex justify-content-between align-items-center'>
-<a class='audio-play' href='javascript:void(0)'></a>
+<div class="panel-audo">
+<div class="d-flex justify-content-between align-items-center">
+<a class="audio-play" href="javascript:void(0)"></a>
 </div>
-<ul class='playlist d-none'>
-<li data-audio='https://cdn.jsdelivr.net/gh/transinh085/trannhatsinhit.github.io@9735e28/PmAniversary.mp3'>Audio</li>
-<li data-audio=' https://cdn.jsdelivr.net/gh/transinh085/trannhatsinhit.github.io/Send%20It%20-%20Austin%20Mahone_%20Rich%20Homie%20Quan.mp3'>Audio</li>
-<li data-audio='https://cdn.jsdelivr.net/gh/transinh085/trannhatsinhit.github.io@72d49af5073ecb223cf3ea8753251ba898a20dd8/C%C3%B3%20Ch%C3%A0ng%20Trai%20Vi%E1%BA%BFt%20L%C3%AAn%20C%C3%A2y_Phan%20M%E1%BA%A1nh%20Qu%E1%BB%B3nh_-1078004712.mp3'>Audio</li>
-<li data-audio='https://cdn.jsdelivr.net/gh/transinh085/trannhatsinhit.github.io@75d99ee/T%C3%A2m%20S%E1%BB%B1%20Tu%E1%BB%95i%2030%20(%C3%94ng%20Ngo%E1%BA%A1i%20Tu%E1%BB%95i%2030%20OST)_Tr%E1%BB%8Bnh%20Th%C4%83ng%20B%C3%ACnh_-1078082976.mp3'>Audio</li>
+<ul class="playlist d-none">
+<li data-audio="https://cdn.jsdelivr.net/gh/transinh085/trannhatsinhit.github.io@9735e28/PmAniversary.mp3">Audio</li>
+<li data-audio=" https://cdn.jsdelivr.net/gh/transinh085/trannhatsinhit.github.io/Send%20It%20-%20Austin%20Mahone_%20Rich%20Homie%20Quan.mp3">Audio</li>
+<li data-audio="https://cdn.jsdelivr.net/gh/transinh085/trannhatsinhit.github.io@72d49af5073ecb223cf3ea8753251ba898a20dd8/C%C3%B3%20Ch%C3%A0ng%20Trai%20Vi%E1%BA%BFt%20L%C3%AAn%20C%C3%A2y_Phan%20M%E1%BA%A1nh%20Qu%E1%BB%B3nh_-1078004712.mp3">Audio</li>
+<li data-audio="https://cdn.jsdelivr.net/gh/transinh085/trannhatsinhit.github.io@75d99ee/T%C3%A2m%20S%E1%BB%B1%20Tu%E1%BB%95i%2030%20(%C3%94ng%20Ngo%E1%BA%A1i%20Tu%E1%BB%95i%2030%20OST)_Tr%E1%BB%8Bnh%20Th%C4%83ng%20B%C3%ACnh_-1078082976.mp3">Audio</li>
 </ul>
-<ul class='bg-header-bubbles'><li></li><li></li><li></li><li></li><li></li><li></li><li></li><li></li><li></li><li></li></ul>
+<ul class="bg-header-bubbles"><li></li><li></li><li></li><li></li><li></li><li></li><li></li><li></li><li></li><li></li></ul>
 </div>
 </div>
-<div class='navbar no-items section' id='navbar'></div>
+<div class="navbar no-items section" id="navbar"></div>
 <script>
 new WOW().init();
 </script>
-<script src='//javascript.leanhduc.pro.vn/drop_heart.js'></script>
-<script src='https://cdn.rawgit.com/matthieua/WOW/1.0.1/dist/wow.min.js'></script>
+<script src="//javascript.leanhduc.pro.vn/drop_heart.js"></script>
+<script src="https://cdn.rawgit.com/matthieua/WOW/1.0.1/dist/wow.min.js"></script>
 <script>//<![CDATA[
 $(document).ready(function() {
  var sounds = [];
@@ -284,7 +214,7 @@ $(document).ready(function() {
 });
 //]]></script>
 <!--setTimeout(() =>{ sounds[activeTrack].play(); $(".audio-play").attr('class','audio-pause'); }, 3000);-->
-<script type='text/javascript'>
+<script type="text/javascript">
 //<![CDATA[
 $(document).ready(function() {
   // Fakes the loading setting a timeout
@@ -295,11 +225,11 @@ $(document).ready(function() {
 });
 //]]>
 </script>
-<script type='text/javascript'>
+<script type="text/javascript">
 //<![CDATA[
 document.write('<img height="80px" src="https://i.imgur.com/SXCtWIU.gif" style="position:fixed;bottom:-3px;right:0;z-index:999"/>')
 //]]>
-</script>
+</script><img height="80px" src="https://i.imgur.com/SXCtWIU.gif" style="position:fixed;bottom:-3px;right:0;z-index:999">
 
-</body>
-</html>
+
+</body></html>
