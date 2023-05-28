@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>QR Code</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+		<h1 id="header-text">QR Code Generator</h1>
+	</header>
+  <main>
+<input type="radio" id="tab1" name="tab" value="url" checked>
+<br><br>
+ <article>
+  <input type="text" name="url" id="url" placeholder="QR by tnhantl" pattern="(http(s)?:\/\/.)?(www\.)?[-a-zA-Z0-9]{1,63}\.[a-z0-9]{2,63}\b([-a-zA-Z0-9@:%_\+.~#?&amp;/=]*)">
+</article>
+<br>
+<div id="qrcode"></div>
+<br><div id="previewImg"></div>
+
+<a class="button qr-png-download" href="javascript:;" title="Download PNG">Download PNG</a>&nbsp; &nbsp; &nbsp;
+<a class="button qr-svg-download" href="javascript:;" title="Download SVG">Download SVG</a>
+</main>
+<br><br>
+<!-- partial -->
+  <script src='https://code.jquery.com/jquery-2.2.4.min.js'></script>
+<script src='https://themunim.com/wp-content/themes/munim/assets/js/Calculator/qrcode.js'></script>
+<script src='https://cdnjs.cloudflare.com/ajax/libs/html-to-image/1.9.0/html-to-image.js'></script>
+<script src="./script.js"></script>
+<footer>
+    <p>©2023 tnhantl All Rights Reserved</p>
+</footer>
+</body>
+</html>
