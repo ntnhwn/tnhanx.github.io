@@ -4,7 +4,7 @@ const donationData = [
         accountNumber: "123456789",
         accountHolder: "John Doe",
         bankName: "Example Bank",
-        qrCodeImage: "http://tnhan.dev/images/QR.png"
+        qrCodeImage: "http://tnhan.dev/donate/images/IMG_4882.png"
     },
     {
         accountNumber: "987654321",
