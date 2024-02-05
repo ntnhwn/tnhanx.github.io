@@ -1,16 +1,16 @@
 // Sample data in JSON format
 const donationData = [
     {
-        accountNumber: "123456789",
-        accountHolder: "John Doe",
-        bankName: "Example Bank",
+        accountNumber: "0898793581",
+        accountHolder: "NGUYEN THIEN NHAN",
+        bankName: "Momo",
         qrCodeImage: "http://tnhan.dev/donate/images/IMG_4882.png"
     },
     {
-        accountNumber: "987654321",
-        accountHolder: "Jane Smith",
-        bankName: "Another Bank",
-        qrCodeImage: "path_to_qr_image2.jpg"
+        accountNumber: "9898793581",
+        accountHolder: "NGUYEN THIEN NHAN",
+        bankName: "Vietcombank",
+        qrCodeImage: "https://tnhan.dev/donate/images/IMG_4884.jpeg"
     },
     // Add more donation information as needed
 ];
