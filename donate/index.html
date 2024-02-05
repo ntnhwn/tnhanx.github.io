@@ -69,6 +69,20 @@
         document.addEventListener("contextmenu", function(e) {
             e.preventDefault(); // Ngăn chặn hiển thị menu chuột phải
         });
+
+        document.addEventListener("DOMContentLoaded", function() {
+            // Kiểm tra xem đã có giá trị "visitCount" trong localStorage chưa
+            if (localStorage.getItem("visitCount") === null) {
+                localStorage.setItem("visitCount", 0);
+            }
+
+            // Lấy giá trị hiện tại từ localStorage và hiển thị
+            var currentVisits = parseInt(localStorage.getItem("visitCount"));
+            document.getElementById("visitCount").textContent = currentVisits;
+
+            // Tăng giá trị mỗi khi trang được tải lại
+            localStorage.setItem("visitCount", currentVisits + 1);
+        });
     </script>
 </head>
 <body>
