@@ -4,13 +4,13 @@ const donationData = [
         accountNumber: "0898793581",
         accountHolder: "NGUYEN THIEN NHAN",
         bankName: "Momo",
-        qrCodeImage: "http://tnhan.dev/donate/images/IMG_4882.png"
+        qrCodeImage: "http://tnhan.dev/pay/images/IMG_4882.png"
     },
     {
         accountNumber: "9898793581",
         accountHolder: "NGUYEN THIEN NHAN",
         bankName: "Vietcombank",
-        qrCodeImage: "https://tnhan.dev/donate/images/IMG_4884.jpeg"
+        qrCodeImage: "https://tnhan.dev/pay/images/IMG_4884.jpeg"
     },
     // Add more donation information as needed
 ];
