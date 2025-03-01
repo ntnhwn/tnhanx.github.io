@@ -6,7 +6,9 @@
     <title>Thanh Toán QR</title>
     <style>
         body { font-family: Arial, sans-serif; text-align: center; padding: 20px; }
-        .payment-method { margin-bottom: 30px; }
+        .container { display: flex; justify-content: center; flex-wrap: wrap; gap: 20px; }
+        .column { display: flex; flex-direction: column; gap: 20px; }
+        .payment-method { text-align: center; border: 1px solid #ccc; padding: 15px; border-radius: 10px; }
         .qr-code { margin-top: 10px; }
         .copy-btn { margin-top: 5px; padding: 5px 10px; cursor: pointer; background-color: #007bff; color: white; border: none; border-radius: 5px; }
     </style>
@@ -23,32 +25,35 @@
 <body>
     <h2>Thanh Toán QR</h2>
     
-    <div class="payment-method">
-        <h3>Momo</h3>
-        <p>0898793581 - NGUYEN THIEN NHAN</p>
-        <button class="copy-btn" onclick="copyToClipboard('0898793581')">Sao chép</button>
-        <img class="qr-code" src="momo-qr.png" alt="QR Momo" width="150">
-    </div>
-    
-    <div class="payment-method">
-        <h3>Vietcombank</h3>
-        <p>9898793581 - NGUYEN THIEN NHAN</p>
-        <button class="copy-btn" onclick="copyToClipboard('9898793581')">Sao chép</button>
-        <img class="qr-code" src="https://api.vietqr.io/image/VCB-9898793581-compact.png" alt="QR Vietcombank" width="150">
-    </div>
-    
-    <div class="payment-method">
-        <h3>Litecoin (LTC)</h3>
-        <p>LWWEVwGaj7TGKckGLmS9DpAHpyeYdq9n31</p>
-        <button class="copy-btn" onclick="copyToClipboard('LWWEVwGaj7TGKckGLmS9DpAHpyeYdq9n31')">Sao chép</button>
-        <img class="qr-code" src="ltc-qr.png" alt="QR LTC" width="150">
-    </div>
-    
-    <div class="payment-method">
-        <h3>USDT TRC20</h3>
-        <p>TMGWiLDcKK42SQybFNXS6xi9das7Z2HRSR</p>
-        <button class="copy-btn" onclick="copyToClipboard('TMGWiLDcKK42SQybFNXS6xi9das7Z2HRSR')">Sao chép</button>
-        <img class="qr-code" src="usdt-qr.png" alt="QR USDT TRC20" width="150">
+    <div class="container">
+        <div class="column">
+            <div class="payment-method">
+                <h3>Momo</h3>
+                <p>0898793581 - NGUYEN THIEN NHAN</p>
+                <button class="copy-btn" onclick="copyToClipboard('0898793581')">Sao chép</button>
+                <img class="qr-code" src="momo-qr.png" alt="QR Momo" width="150">
+            </div>
+            <div class="payment-method">
+                <h3>Vietcombank</h3>
+                <p>9898793581 - NGUYEN THIEN NHAN</p>
+                <button class="copy-btn" onclick="copyToClipboard('9898793581')">Sao chép</button>
+                <img class="qr-code" src="https://api.vietqr.io/image/VCB-9898793581-compact.png" alt="QR Vietcombank" width="150">
+            </div>
+        </div>
+        <div class="column">
+            <div class="payment-method">
+                <h3>Litecoin (LTC)</h3>
+                <p>LWWEVwGaj7TGKckGLmS9DpAHpyeYdq9n31</p>
+                <button class="copy-btn" onclick="copyToClipboard('LWWEVwGaj7TGKckGLmS9DpAHpyeYdq9n31')">Sao chép</button>
+                <img class="qr-code" src="ltc-qr.png" alt="QR LTC" width="150">
+            </div>
+            <div class="payment-method">
+                <h3>USDT TRC20</h3>
+                <p>TMGWiLDcKK42SQybFNXS6xi9das7Z2HRSR</p>
+                <button class="copy-btn" onclick="copyToClipboard('TMGWiLDcKK42SQybFNXS6xi9das7Z2HRSR')">Sao chép</button>
+                <img class="qr-code" src="usdt-qr.png" alt="QR USDT TRC20" width="150">
+            </div>
+        </div>
     </div>
 </body>
 </html>
