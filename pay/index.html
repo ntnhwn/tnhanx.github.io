@@ -1,104 +1,54 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="vi">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Pay</title>
+    <title>Thanh Toán QR</title>
     <style>
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            text-align: center;
-            margin: 0;
-            padding: 0;
-            background: linear-gradient(to bottom, #bdc3c7, #2c3e50);
-            color: #fff;
-        }
-        h1 {
-            margin-top: 40px;
-            color: #ecf0f1;
-        }
-        p {
-            color: #ecf0f1;
-            max-width: 600px;
-            margin: 0 auto 40px;
-        }
-        .qr-code-container {
-            display: flex;
-            justify-content: center;
-            flex-wrap: wrap;
-            gap: 20px; /* Khoảng cách giữa các ô */
-            margin-top: 40px;
-        }
-        .qr-code {
-            flex: 1; /* Tự động mở rộng kích thước để bằng nhau */
-            max-width: 300px; /* Kích thước tối đa cho mỗi ô */
-            border: 1px solid #ddd;
-            padding: 20px;
-            margin: 20px;
-            background-color: #fff;
-            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
-            transition: transform 0.3s ease-in-out;
-            cursor: pointer;
-            border-radius: 10px; /* Bo tròn góc của khung thông tin */
-        }
-        .qr-code:hover {
-            transform: scale(1.05);
-        }
-        img {
-            max-width: 100%;
-            height: auto;
-            margin-bottom: 10px;
-        }
-        .qr-info {
-            color: #2c3e50;
-            margin-bottom: 15px;
-        }
-        .footer {
-            margin-top: 40px;
-            color: #ecf0f1;
-        }
-        .footer a {
-            color: #fff;
-            text-decoration: none;
-            font-weight: bold;
-        }
+        body { font-family: Arial, sans-serif; text-align: center; padding: 20px; }
+        .payment-method { margin-bottom: 30px; }
+        .qr-code { margin-top: 10px; }
+        .copy-btn { margin-top: 5px; padding: 5px 10px; cursor: pointer; background-color: #007bff; color: white; border: none; border-radius: 5px; }
     </style>
     <script>
-        document.onkeydown = function(e) {
-            if (e.key === "F12") {
-                return false; // Ngăn chặn mở Developer Tools
-            }
-        };
-        document.addEventListener("contextmenu", function(e) {
-            e.preventDefault(); // Ngăn chặn hiển thị menu chuột phải
-        });
-
-        document.addEventListener("DOMContentLoaded", function() {
-            // Kiểm tra xem đã có giá trị "visitCount" trong localStorage chưa
-            if (localStorage.getItem("visitCount") === null) {
-                localStorage.setItem("visitCount", 0);
-            }
-
-            // Lấy giá trị hiện tại từ localStorage và hiển thị
-            var currentVisits = parseInt(localStorage.getItem("visitCount"));
-            document.getElementById("visitCount").textContent = currentVisits;
-
-            // Tăng giá trị mỗi khi trang được tải lại
-            localStorage.setItem("visitCount", currentVisits + 1);
-        });
+        function copyToClipboard(text) {
+            navigator.clipboard.writeText(text).then(() => {
+                alert("Đã sao chép: " + text);
+            }).catch(err => {
+                console.error('Không thể sao chép', err);
+            });
+        }
     </script>
 </head>
 <body>
-    <h1>Trang Thanh Toan</h1>
-    <div class="qr-code-container" id="qrCodesContainer">
-        <!-- QR Codes will be dynamically generated here -->
+    <h2>Thanh Toán QR</h2>
+    
+    <div class="payment-method">
+        <h3>Momo</h3>
+        <p>0898793581 - NGUYEN THIEN NHAN</p>
+        <button class="copy-btn" onclick="copyToClipboard('0898793581')">Sao chép</button>
+        <img class="qr-code" src="momo-qr.png" alt="QR Momo" width="150">
     </div>
-
-    <div class="footer">
-        <p>Total Visits: <span id="visitCount">0</span></p>
-        <p>© 2024 <a href="https://tnhan.dev" target="_blank">tnhan.dev</a>. All rights reserved.</p>
+    
+    <div class="payment-method">
+        <h3>Vietcombank</h3>
+        <p>9898793581 - NGUYEN THIEN NHAN</p>
+        <button class="copy-btn" onclick="copyToClipboard('9898793581')">Sao chép</button>
+        <img class="qr-code" src="https://api.vietqr.io/image/VCB-9898793581-compact.png" alt="QR Vietcombank" width="150">
     </div>
-
-    <script src="script.js"></script>
+    
+    <div class="payment-method">
+        <h3>Litecoin (LTC)</h3>
+        <p>LWWEVwGaj7TGKckGLmS9DpAHpyeYdq9n31</p>
+        <button class="copy-btn" onclick="copyToClipboard('LWWEVwGaj7TGKckGLmS9DpAHpyeYdq9n31')">Sao chép</button>
+        <img class="qr-code" src="ltc-qr.png" alt="QR LTC" width="150">
+    </div>
+    
+    <div class="payment-method">
+        <h3>USDT TRC20</h3>
+        <p>TMGWiLDcKK42SQybFNXS6xi9das7Z2HRSR</p>
+        <button class="copy-btn" onclick="copyToClipboard('TMGWiLDcKK42SQybFNXS6xi9das7Z2HRSR')">Sao chép</button>
+        <img class="qr-code" src="usdt-qr.png" alt="QR USDT TRC20" width="150">
+    </div>
 </body>
 </html>
