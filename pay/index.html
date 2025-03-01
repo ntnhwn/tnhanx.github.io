@@ -11,6 +11,8 @@
         .payment-method { text-align: center; border: 1px solid #ccc; padding: 15px; border-radius: 10px; }
         .qr-code { margin-bottom: 10px; }
         .copy-btn { margin-top: 5px; padding: 5px 10px; cursor: pointer; background-color: #007bff; color: white; border: none; border-radius: 5px; }
+        .crypto-container { display: flex; justify-content: center; gap: 20px; margin-top: 20px; }
+        .crypto-method { text-align: center; border: 1px solid #ccc; padding: 15px; border-radius: 10px; width: 45%; }
     </style>
     <script>
         function copyToClipboard(text) {
@@ -40,19 +42,20 @@
                 <button class="copy-btn" onclick="copyToClipboard('9898793581')">Sao chép</button>
             </div>
         </div>
-        <div class="column">
-            <div class="payment-method">
-                <h3>Litecoin (LTC)</h3>
-                <img class="qr-code" src="ltc-qr.png" alt="QR LTC" width="150">
-                <p>LWWEVwGaj7TGKckGLmS9DpAHpyeYdq9n31</p>
-                <button class="copy-btn" onclick="copyToClipboard('LWWEVwGaj7TGKckGLmS9DpAHpyeYdq9n31')">Sao chép</button>
-            </div>
-            <div class="payment-method">
-                <h3>USDT TRC20</h3>
-                <img class="qr-code" src="usdt-qr.png" alt="QR USDT TRC20" width="150">
-                <p>TMGWiLDcKK42SQybFNXS6xi9das7Z2HRSR</p>
-                <button class="copy-btn" onclick="copyToClipboard('TMGWiLDcKK42SQybFNXS6xi9das7Z2HRSR')">Sao chép</button>
-            </div>
+    </div>
+    
+    <div class="crypto-container">
+        <div class="crypto-method">
+            <h3>Litecoin (LTC)</h3>
+            <img class="qr-code" src="litecoin_(ltc).png" alt="QR LTC" width="150">
+            <p>LWWEVwGaj7TGKckGLmS9DpAHpyeYdq9n31</p>
+            <button class="copy-btn" onclick="copyToClipboard('LWWEVwGaj7TGKckGLmS9DpAHpyeYdq9n31')">Sao chép</button>
+        </div>
+        <div class="crypto-method">
+            <h3>USDT TRC20</h3>
+            <img class="qr-code" src="usdt_trc20.png" alt="QR USDT TRC20" width="150">
+            <p>TMGWiLDcKK42SQybFNXS6xi9das7Z2HRSR</p>
+            <button class="copy-btn" onclick="copyToClipboard('TMGWiLDcKK42SQybFNXS6xi9das7Z2HRSR')">Sao chép</button>
         </div>
     </div>
 </body>
