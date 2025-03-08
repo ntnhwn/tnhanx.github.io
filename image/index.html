@@ -18,8 +18,9 @@
 
     <script>
         const username = "tnhanx"; // GitHub username của bạn
-        const repo = "tnhanx.github.io"; // Repo bạn đang dùng GitHub Pages
-        let currentPath = "image"; // Đặt thư mục bắt đầu (VD: "image")
+        const repo = "tnhanx.github.io"; // Repo của bạn
+        const customDomain = "https://tnhan.dev"; // Tên miền tùy chỉnh của bạn
+        let currentPath = "image"; // Bắt đầu từ thư mục image
 
         function loadFiles(path = "") {
             const apiUrl = `https://api.github.com/repos/${username}/${repo}/contents/${path}`;
@@ -42,7 +43,9 @@
                                 currentPath = file.path;
                                 loadFiles(currentPath);
                             } else {
-                                window.open(file.html_url, "_blank");
+                                // Chuyển hướng file sang tnhan.dev/image/...
+                                const fileUrl = `${customDomain}/${file.path}`;
+                                window.open(fileUrl, "_blank");
                             }
                         };
                         fileList.appendChild(li);
