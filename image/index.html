@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Trình xem ảnh</title>
+    <style>
+        body { font-family: Arial, sans-serif; }
+        .folder { cursor: pointer; color: blue; margin: 5px 0; }
+        .file { cursor: pointer; margin-left: 20px; color: green; }
+        #imageViewer { margin-top: 20px; }
+    </style>
+</head>
+<body>
+    <h2>Danh sách thư mục và ảnh</h2>
+    <div id="folderContainer"></div>
+    <div id="imageViewer"></div>
+
+    <script>
+        const folders = {
+            "Minh thắng": ["image1.jpg", "image2.jpg"],
+            "Thư mục khác": ["photo1.png", "photo2.png"]
+        };
+
+        function loadFolders() {
+            const container = document.getElementById("folderContainer");
+            for (let folderName in folders) {
+                let folderDiv = document.createElement("div");
+                folderDiv.className = "folder";
+                folderDiv.innerText = "📁 " + folderName;
+                folderDiv.onclick = () => toggleFiles(folderName);
+                container.appendChild(folderDiv);
+
+                let fileListDiv = document.createElement("div");
+                fileListDiv.id = folderName;
+                fileListDiv.style.display = "none";
+                fileListDiv.style.marginLeft = "20px";
+                folders[folderName].forEach(file => {
+                    let fileDiv = document.createElement("div");
+                    fileDiv.className = "file";
+                    fileDiv.innerText = file;
+                    fileDiv.onclick = () => viewImage(file);
+                    fileListDiv.appendChild(fileDiv);
+                });
+                container.appendChild(fileListDiv);
+            }
+        }
+
+        function toggleFiles(folderId) {
+            var folder = document.getElementById(folderId);
+            folder.style.display = (folder.style.display === "none") ? "block" : "none";
+        }
+
+        function viewImage(imageSrc) {
+            document.getElementById('imageViewer').innerHTML = `<img src="${imageSrc}" alt="Ảnh" style="max-width:100%; margin-top:10px;">`;
+        }
+
+        loadFolders();
+    </script>
+</body>
+</html>
