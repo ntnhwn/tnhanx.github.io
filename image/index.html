@@ -3,60 +3,60 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Trình xem ảnh</title>
+    <title>File Explorer trên GitHub Pages</title>
     <style>
-        body { font-family: Arial, sans-serif; }
-        .folder { cursor: pointer; color: blue; margin: 5px 0; }
-        .file { cursor: pointer; margin-left: 20px; color: green; }
-        #imageViewer { margin-top: 20px; }
+        body { font-family: Arial, sans-serif; max-width: 600px; margin: 20px auto; }
+        ul { list-style: none; padding: 0; }
+        li { padding: 8px; cursor: pointer; border-bottom: 1px solid #ddd; }
+        li:hover { background: #f0f0f0; }
+        .back { color: blue; font-weight: bold; }
     </style>
 </head>
 <body>
-    <h2>Danh sách thư mục và ảnh</h2>
-    <div id="folderContainer"></div>
-    <div id="imageViewer"></div>
+    <h2>Danh sách tệp/thư mục</h2>
+    <ul id="file-list"></ul>
 
     <script>
-        const folders = {
-            "Minh Thắng": ["bien.jpg", "nui.jpg", "song.jpg"],
-            "Phạm Bảo": ["anh1.jpg", "anh2.jpg"],
-            "Công việc": ["file1.png", "file2.png", "file3.png"]
-        };
+        const username = "tnhanx"; // GitHub username của bạn
+        const repo = "tnhanx.github.io"; // Repo bạn đang dùng GitHub Pages
+        let currentPath = "image"; // Đặt thư mục bắt đầu (VD: "image")
 
-        function loadFolders() {
-            const container = document.getElementById("folderContainer");
-            for (let folderName in folders) {
-                let folderDiv = document.createElement("div");
-                folderDiv.className = "folder";
-                folderDiv.innerText = "📁 " + folderName;
-                folderDiv.onclick = () => toggleFiles(folderName);
-                container.appendChild(folderDiv);
+        function loadFiles(path = "") {
+            const apiUrl = `https://api.github.com/repos/${username}/${repo}/contents/${path}`;
 
-                let fileListDiv = document.createElement("div");
-                fileListDiv.id = folderName;
-                fileListDiv.style.display = "none";
-                fileListDiv.style.marginLeft = "20px";
-                folders[folderName].forEach(file => {
-                    let fileDiv = document.createElement("div");
-                    fileDiv.className = "file";
-                    fileDiv.innerText = file;
-                    fileDiv.onclick = () => viewImage(file);
-                    fileListDiv.appendChild(fileDiv);
-                });
-                container.appendChild(fileListDiv);
-            }
+            fetch(apiUrl)
+                .then(res => res.json())
+                .then(data => {
+                    const fileList = document.getElementById("file-list");
+                    fileList.innerHTML = ""; // Xóa danh sách cũ
+
+                    if (path && path !== "image") {
+                        fileList.innerHTML += `<li class="back" onclick="goBack()">⬅ Quay lại</li>`;
+                    }
+
+                    data.forEach(file => {
+                        const li = document.createElement("li");
+                        li.textContent = file.name;
+                        li.onclick = () => {
+                            if (file.type === "dir") {
+                                currentPath = file.path;
+                                loadFiles(currentPath);
+                            } else {
+                                window.open(file.html_url, "_blank");
+                            }
+                        };
+                        fileList.appendChild(li);
+                    });
+                })
+                .catch(err => console.error("Lỗi tải file:", err));
         }
 
-        function toggleFiles(folderId) {
-            var folder = document.getElementById(folderId);
-            folder.style.display = (folder.style.display === "none") ? "block" : "none";
+        function goBack() {
+            currentPath = currentPath.split("/").slice(0, -1).join("/");
+            loadFiles(currentPath);
         }
 
-        function viewImage(imageSrc) {
-            document.getElementById('imageViewer').innerHTML = `<img src="${imageSrc}" alt="Ảnh" style="max-width:100%; margin-top:10px;">`;
-        }
-
-        loadFolders();
+        loadFiles(currentPath);
     </script>
 </body>
 </html>
