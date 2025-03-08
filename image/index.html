@@ -3,24 +3,28 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>File Explorer trên GitHub Pages</title>
+    <title>Trình duyệt ảnh trên GitHub Pages</title>
     <style>
         body { font-family: Arial, sans-serif; max-width: 600px; margin: 20px auto; }
         ul { list-style: none; padding: 0; }
         li { padding: 8px; cursor: pointer; border-bottom: 1px solid #ddd; }
         li:hover { background: #f0f0f0; }
         .back { color: blue; font-weight: bold; }
+        img { max-width: 100px; height: auto; display: block; margin-top: 5px; }
     </style>
 </head>
 <body>
-    <h2>Danh sách tệp/thư mục</h2>
+    <h2>Danh sách ảnh</h2>
     <ul id="file-list"></ul>
 
     <script>
         const username = "tnhanx"; // GitHub username của bạn
         const repo = "tnhanx.github.io"; // Repo của bạn
         const customDomain = "https://tnhan.dev"; // Tên miền tùy chỉnh của bạn
-        let currentPath = "image"; // Bắt đầu từ thư mục image
+        let currentPath = "image"; // Bắt đầu từ thư mục "image"
+
+        // Các đuôi file ảnh hợp lệ
+        const imageExtensions = ["jpg", "jpeg", "png", "gif", "svg", "webp"];
 
         function loadFiles(path = "") {
             const apiUrl = `https://api.github.com/repos/${username}/${repo}/contents/${path}`;
@@ -36,19 +40,26 @@
                     }
 
                     data.forEach(file => {
-                        const li = document.createElement("li");
-                        li.textContent = file.name;
-                        li.onclick = () => {
-                            if (file.type === "dir") {
+                        const fileExtension = file.name.split('.').pop().toLowerCase();
+
+                        if (file.type === "dir") {
+                            // Nếu là thư mục, cho phép vào thư mục
+                            const li = document.createElement("li");
+                            li.textContent = `📁 ${file.name}`;
+                            li.onclick = () => {
                                 currentPath = file.path;
                                 loadFiles(currentPath);
-                            } else {
-                                // Chuyển hướng file sang tnhan.dev/image/...
-                                const fileUrl = `${customDomain}/${file.path}`;
-                                window.open(fileUrl, "_blank");
-                            }
-                        };
-                        fileList.appendChild(li);
+                            };
+                            fileList.appendChild(li);
+                        } else if (imageExtensions.includes(fileExtension)) {
+                            // Nếu là file ảnh, hiển thị hình ảnh
+                            const li = document.createElement("li");
+                            li.innerHTML = `<span>🖼 ${file.name}</span><br><img src="${customDomain}/${file.path}" alt="${file.name}">`;
+                            li.onclick = () => {
+                                window.open(`${customDomain}/${file.path}`, "_blank");
+                            };
+                            fileList.appendChild(li);
+                        }
                     });
                 })
                 .catch(err => console.error("Lỗi tải file:", err));
