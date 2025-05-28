@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <title>📁 note/</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    body {
+      font-family: "Segoe UI", sans-serif;
+      background-color: #f5f6fa;
+      color: #2f3640;
+      max-width: 800px;
+      margin: 40px auto;
+      padding: 0 20px;
+    }
+    h1 {
+      font-size: 2rem;
+      margin-bottom: 20px;
+      color: #192a56;
+    }
+    input[type="text"] {
+      width: 100%;
+      padding: 10px 15px;
+      margin-bottom: 20px;
+      border: 1px solid #dcdde1;
+      border-radius: 6px;
+      font-size: 1rem;
+      outline: none;
+    }
+    ul {
+      padding-left: 0;
+    }
+    li {
+      list-style: none;
+      background: #fff;
+      border-radius: 8px;
+      margin-bottom: 15px;
+      padding: 15px 20px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.05);
+      transition: transform 0.1s ease-in-out;
+    }
+    li:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 4px 10px rgba(0,0,0,0.08);
+    }
+    a {
+      text-decoration: none;
+      color: #273c75;
+      font-weight: bold;
+      font-size: 1.1rem;
+    }
+    a:hover {
+      color: #487eb0;
+    }
+    .date {
+      display: inline-block;
+      font-size: 0.9em;
+      color: #44bd32;
+      margin-top: 5px;
+    }
+    footer {
+      margin-top: 50px;
+      font-size: 0.9rem;
+      color: #888;
+      text-align: center;
+    }
+    footer a {
+      color: #888;
+    }
+  </style>
+</head>
+<body>
+
+  <h1>📁 note/</h1>
+  <input type="text" id="search" placeholder="🔍 Tìm file...">
+  <ul id="file-list">
+    <li>Đang tải danh sách file...</li>
+  </ul>
+
+  <footer>
+    &copy; 2025 – <a href="https://github.com/ntnhwn" target="_blank">ntnhwn</a>
+  </footer>
+
+  <script>
+    const user = "ntnhwn";
+    const repo = "tnhanx.github.io";
+    const path = "note";
+    const apiUrl = `https://api.github.com/repos/${user}/${repo}/contents/${path}`;
+
+    async function getCommitDate(fileName) {
+      const commitsApi = `https://api.github.com/repos/${user}/${repo}/commits?path=${path}/${fileName}&per_page=1`;
+      try {
+        const response = await fetch(commitsApi);
+        const data = await response.json();
+        const date = new Date(data[0].commit.committer.date);
+        return date;
+      } catch (err) {
+        console.error("Lỗi lấy ngày commit:", fileName, err);
+        return null;
+      }
+    }
+
+    async function loadFiles() {
+      const list = document.getElementById("file-list");
+      list.innerHTML = "";
+
+      try {
+        const response = await fetch(apiUrl);
+        const data = await response.json();
+        const htmlFiles = data.filter(file => file.name.endsWith(".html"));
+
+        const fileData = await Promise.all(htmlFiles.map(async (file) => {
+          const dateObj = await getCommitDate(file.name);
+          return {
+            name: file.name,
+            url: `/${path}/${file.name}`,
+            date: dateObj,
+            formattedDate: dateObj ? dateObj.toISOString().split("T")[0] : "Không rõ"
+          };
+        }));
+
+        fileData.sort((a, b) => (b.date || 0) - (a.date || 0));
+
+        for (const file of fileData) {
+          const li = document.createElement("li");
+          li.setAttribute("data-name", file.name.toLowerCase());
+          
+          const a = document.createElement("a");
+          a.href = file.url;
+          a.textContent = file.name;
+
+          const span = document.createElement("span");
+          span.className = "date";
+          span.textContent = `📅 ${file.formattedDate}`;
+
+          li.appendChild(a);
+          li.appendChild(document.createElement("br"));
+          li.appendChild(span);
+          list.appendChild(li);
+        }
+
+        if (fileData.length === 0) {
+          list.innerHTML = "<li>Không tìm thấy file HTML nào.</li>";
+        }
+      } catch (err) {
+        console.error("Lỗi tải file:", err);
+        list.innerHTML = "<li>Lỗi tải danh sách file.</li>";
+      }
+    }
+
+    // 🔍 Tìm kiếm realtime
+    document.getElementById("search").addEventListener("input", function () {
+      const keyword = this.value.toLowerCase();
+      document.querySelectorAll("#file-list li").forEach(li => {
+        const name = li.getAttribute("data-name");
+        li.style.display = name.includes(keyword) ? "block" : "none";
+      });
+    });
+
+    loadFiles();
+  </script>
+
+</body>
+</html>
