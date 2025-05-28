@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Hướng Dẫn Tạo MTPROTO Proxy Truy Cập Telegram</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      line-height: 1.6;
+      padding: 20px;
+      max-width: 900px;
+      margin: auto;
+      background-color: #f4f4f4;
+    }
+    h1, h2 {
+      color: #2c3e50;
+    }
+    pre {
+      background: #2d2d2d;
+      color: #f8f8f2;
+      padding: 10px;
+      border-radius: 5px;
+      overflow-x: auto;
+    }
+    code {
+      font-family: monospace;
+    }
+    ul {
+      margin-left: 20px;
+    }
+    .note {
+      background: #ffeaa7;
+      padding: 10px;
+      border-left: 5px solid #fdcb6e;
+      margin: 15px 0;
+    }
+  </style>
+</head>
+<body>
+
+  <h1>Hướng Dẫn Tạo PROXY Truy Cập Telegram</h1>
+  <h2>MTPROTO Proxy | Ubuntu</h2>
+
+  <p>Bài viết này hướng dẫn bạn tạo Proxy dạng MTPROTO trên Ubuntu VPS để thêm vào ứng dụng Telegram và truy cập tại Việt Nam.</p>
+
+  <h2>NGUYÊN LIỆU</h2>
+  <ul>
+    <li>VPS nước ngoài chạy Ubuntu (Azure, Google Cloud, AWS...) không bị chặn truy cập Telegram</li>
+  </ul>
+
+  <h2>CÁC BƯỚC THỰC HIỆN</h2>
+
+  <h3>B1: Cập nhật hệ thống và cài Docker</h3>
+  <pre><code>sudo apt-get update
+sudo apt-get install docker.io -y
+sudo systemctl start docker
+sudo systemctl enable docker</code></pre>
+
+  <p>Nếu gặp lỗi liên quan đến Docker service:</p>
+  <pre><code>sudo systemctl unmask docker.socket &amp;&amp; sudo systemctl unmask docker.service &amp;&amp; sudo systemctl unmask containerd &amp;&amp; sudo systemctl restart containerd
+sudo systemctl start docker</code></pre>
+
+  <h3>B2: Chạy container MTPROTO</h3>
+  <pre><code>sudo docker run -d \
+ --name=tnhan-mtproto-proxy \
+ --restart=always \
+ -p 8443:443 \
+ -e SECRET=$(head -c 16 /dev/urandom | xxd -ps) \
+ -e TAG='tnhan-mtproto-proxy' \
+ telegrammessenger/proxy</code></pre>
+
+  <p><strong>Mô tả các tham số:</strong></p>
+  <ul>
+    <li><code>--name</code>: Tên container (tùy chọn)</li>
+    <li><code>-p</code>: Port kết nối (443 là mặc định cho Telegram)</li>
+    <li><code>SECRET</code>: Mặc định sẽ random 16 ký tự</li>
+    <li><code>TAG</code>: Thẻ tùy chọn, đặt theo ý bạn</li>
+    <li><code>telegrammessenger/proxy</code>: Nguồn proxy từ GitHub</li>
+  </ul>
+
+  <h3>B3: Lấy thông tin kết nối</h3>
+  <pre><code>sudo docker logs tnhan-mtproto-proxy 2&gt;&amp;1 | grep secret</code></pre>
+
+  <p>Kết quả sẽ có dạng:</p>
+  <pre><code>tg://proxy?server=xxx.xxx.xxx.xxx&amp;port=443&amp;secret=xxxxxxxxxxxxxxxx
+https://t.me/proxy?server=xxx.xxx.xxx.xxx&amp;port=443&amp;secret=xxxxxxxxxxxxxxxx</code></pre>
+
+  <p><strong>Thông tin cần:</strong></p>
+  <ul>
+    <li>Server: <code>xxx.xxx.xxx.xxx</code></li>
+    <li>Port: <code>443</code></li>
+    <li>Secret: <code>xxxxxxxxxxxxxxxx</code></li>
+  </ul>
+
+  <div class="note">
+    <strong>Lưu ý:</strong> Đảm bảo đã mở các port 80, 443, 8443 trên Firewall của VPS (trên trang quản lý Azure/GCP/AWS hoặc trực tiếp trong hệ điều hành nếu có bật Firewall).
+  </div>
+
+  <h2>MỘT SỐ LỆNH LIÊN QUAN ĐẾN DOCKER</h2>
+
+  <h3>Dừng container</h3>
+  <pre><code>sudo docker stop tnhan-mtproto-proxy</code></pre>
+
+  <h3>Đổi tên container</h3>
+  <pre><code>sudo docker rename mtproto-proxy tnhan-mtproto-proxy</code></pre>
+
+  <h3>Chạy container</h3>
+  <pre><code>sudo docker start tnhan-mtproto-proxy</code></pre>
+
+  <h3>Xoá container</h3>
+  <pre><code>sudo docker rm tnhan-mtproto-proxy</code></pre>
+
+  <h2>OPTIONAL: Cấu hình Firewall trên Ubuntu</h2>
+
+  <h3>Kiểm tra Firewall</h3>
+  <pre><code>sudo ufw status</code></pre>
+
+  <h3>Cài đặt UFW</h3>
+  <pre><code>sudo apt update
+sudo apt install ufw</code></pre>
+
+  <h3>Bật Firewall</h3>
+  <pre><code>sudo ufw enable</code></pre>
+
+  <h3>Cho phép các port Inbound</h3>
+  <pre><code>sudo ufw allow 80/tcp
+sudo ufw allow 443/tcp
+sudo ufw allow 8443/tcp</code></pre>
+
+  <h3>Cho phép Outbound</h3>
+  <pre><code>sudo ufw default allow outgoing</code></pre>
+  <p>Hoặc:</p>
+  <pre><code>sudo ufw allow out 80/tcp
+sudo ufw allow out 443/tcp
+sudo ufw allow out 8443/tcp</code></pre>
+
+  <h3>Kiểm tra lại</h3>
+  <pre><code>sudo ufw status verbose</code></pre>
+
+  <hr>
+  <p><em>© Hướng dẫn bởi Nhân - MTPROTO Proxy Setup for Telegram - 2025</em></p>
+
+</body>
+</html>
