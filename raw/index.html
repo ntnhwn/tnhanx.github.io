@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Danh sách tệp - tnhan.dev/raw/</title>
+  <style>
+    :root { --radius: 10px; }
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 24px; }
+    h1 { margin: 0 0 8px; font-size: 20px; }
+    .sub { color: #666; margin-bottom: 16px; }
+    .controls { display: flex; gap: 8px; margin: 16px 0; flex-wrap: wrap; }
+    input[type="search"] {
+      padding: 10px 12px; border: 1px solid #ddd; border-radius: var(--radius); min-width: 260px;
+    }
+    select { padding: 10px 12px; border: 1px solid #ddd; border-radius: var(--radius); }
+    .card {
+      border: 1px solid #eee; border-radius: var(--radius); overflow: hidden;
+    }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { padding: 12px; border-bottom: 1px dashed #eee; text-align: left; vertical-align: middle; }
+    th { background: #fafafa; font-weight: 600; }
+    tr:hover td { background: #fcfcfc; }
+    .path { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; word-break: break-all; }
+    .btn {
+      padding: 8px 10px; border: 1px solid #ddd; border-radius: 8px; background: #fff; cursor: pointer;
+    }
+    .btn:hover { background: #f6f6f6; }
+    .chip {
+      display: inline-block; padding: 4px 8px; border: 1px solid #eee; border-radius: 999px; font-size: 12px; color: #555;
+    }
+    .footer { color: #888; font-size: 12px; margin-top: 16px; }
+    .toast {
+      position: fixed; inset: auto 16px 16px auto; background: #111; color: #fff;
+      padding: 10px 12px; border-radius: 8px; opacity: 0; transform: translateY(8px);
+      transition: all .25s ease; pointer-events: none; z-index: 9999;
+    }
+    .toast.show { opacity: 1; transform: translateY(0); }
+    .empty { text-align: center; color: #777; padding: 24px; }
+  </style>
+</head>
+<body>
+  <h1>Danh sách tệp tại <code>tnhan.dev/raw/</code></h1>
+  <div class="sub">Tự động quét thư mục <code>/raw</code> trong repo <code>ntnhwn/tnhanx.github.io</code> bằng GitHub API.</div>
+
+  <div class="controls">
+    <input id="q" type="search" placeholder="Tìm theo tên / phần mở rộng (vd: .pdf, .png, .zip)..." />
+    <select id="extFilter">
+      <option value="">Lọc phần mở rộng</option>
+      <option>.pdf</option><option>.png</option><option>.jpg</option><option>.jpeg</option>
+      <option>.gif</option><option>.svg</option><option>.webp</option><option>.txt</option>
+      <option>.md</option><option>.zip</option><option>.rar</option><option>.7z</option>
+      <option>.json</option><option>.csv</option><option>.html</option><option>.css</option><option>.js</option>
+    </select>
+    <button id="refresh" class="btn" title="Tải lại danh sách">🔄 Tải lại</button>
+  </div>
+
+  <div class="card">
+    <table id="table">
+      <thead>
+        <tr>
+          <th>File</th>
+          <th>Đường dẫn</th>
+          <th>Hành động</th>
+        </tr>
+      </thead>
+      <tbody id="tbody">
+        <tr><td class="empty" colspan="3">Đang tải danh sách tệp…</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="footer">Nguồn: GitHub API (trees, branch <code>main</code>). Liên kết được copy theo dạng <code>https://tnhan.dev/raw/&lt;path&gt;</code>.</div>
+  <div id="toast" class="toast">Đã copy!</div>
+
+  <script>
+    // Cấu hình repo & base URL public
+    const OWNER = "ntnhwn";
+    const REPO  = "tnhanx.github.io";
+    const BRANCH = "main";
+    const ROOT_DIR = "raw/"; // chỉ lấy file bên trong thư mục này
+    const PUBLIC_BASE = "https://tnhan.dev/raw/"; // link để copy
+
+    const $ = (sel) => document.querySelector(sel);
+    const tbody = $("#tbody");
+    const toast = $("#toast");
+    const q = $("#q");
+    const extFilter = $("#extFilter");
+    const refreshBtn = $("#refresh");
+
+    let allFiles = [];
+
+    function showToast(msg = "Đã copy!") {
+      toast.textContent = msg;
+      toast.classList.add("show");
+      setTimeout(() => toast.classList.remove("show"), 1500);
+    }
+
+    function isUnderRaw(path) {
+      return path.startsWith(ROOT_DIR) && !path.endsWith("/"); // loại folder
+    }
+
+    function render(list) {
+      if (!list.length) {
+        tbody.innerHTML = `<tr><td class="empty" colspan="3">Không có tệp phù hợp.</td></tr>`;
+        return;
+      }
+      const rows = list.map(item => {
+        const relative = item.path.slice(ROOT_DIR.length); // phần sau 'raw/'
+        const viewUrl = PUBLIC_BASE + relative;           // URL public
+        const safeUrl = encodeURI(viewUrl);               // giữ nguyên dấu '/' nhưng encode ký tự đặc biệt
+        const fileName = relative.split("/").pop();
+
+        return `
+          <tr>
+            <td>
+              <div class="path">${fileName}</div>
+              <div class="chip" title="Đường dẫn tương đối trong /raw">${relative.includes("/") ? relative.split("/").slice(0,-1).join("/") : "."}</div>
+            </td>
+            <td class="path">${relative}</td>
+            <td>
+              <a class="btn" href="${safeUrl}" target="_blank" rel="noopener">🔗 Mở</a>
+              <button class="btn" data-copy="${safeUrl}">📋 Copy link</button>
+            </td>
+          </tr>`;
+      }).join("");
+      tbody.innerHTML = rows;
+
+      // Gán sự kiện copy
+      tbody.querySelectorAll("button[data-copy]").forEach(btn => {
+        btn.addEventListener("click", async (e) => {
+          const url = e.currentTarget.getAttribute("data-copy");
+          try {
+            await navigator.clipboard.writeText(url);
+            showToast("Đã copy liên kết!");
+          } catch {
+            // fallback
+            const ta = document.createElement("textarea");
+            ta.value = url; document.body.appendChild(ta);
+            ta.select(); document.execCommand("copy"); ta.remove();
+            showToast("Đã copy liên kết!");
+          }
+        });
+      });
+    }
+
+    function applyFilter() {
+      const text = q.value.trim().toLowerCase();
+      const ext = extFilter.value;
+      let list = allFiles;
+
+      if (text) {
+        list = list.filter(it => it.path.toLowerCase().includes(text));
+      }
+      if (ext) {
+        list = list.filter(it => it.path.toLowerCase().endsWith(ext.toLowerCase()));
+      }
+      render(list);
+    }
+
+    async function fetchFiles() {
+      tbody.innerHTML = `<tr><td class="empty" colspan="3">Đang tải danh sách tệp…</td></tr>`;
+      allFiles = [];
+      // Dùng Git Trees API để lấy toàn bộ cây thư mục (đã recursive)
+      const url = `https://api.github.com/repos/${OWNER}/${REPO}/git/trees/${encodeURIComponent(BRANCH)}?recursive=1`;
+      try {
+        const res = await fetch(url, {
+          headers: {
+            "Accept": "application/vnd.github+json"
+          }
+        });
+        if (!res.ok) {
+          throw new Error(`GitHub API error: ${res.status}`);
+        }
+        const data = await res.json();
+        // Lọc chỉ file (blob) dưới thư mục raw/
+        allFiles = (data.tree || [])
+          .filter(node => node.type === "blob" && isUnderRaw(node.path))
+          .map(node => ({ path: node.path })); // có thể thêm size: node.size nếu cần
+
+        // Sắp xếp theo tên tệp (a-z)
+        allFiles.sort((a, b) => a.path.localeCompare(b.path, undefined, { sensitivity: "base" }));
+
+        applyFilter();
+      } catch (err) {
+        console.error(err);
+        tbody.innerHTML = `<tr><td class="empty" colspan="3">Không tải được danh sách (có thể do rate limit). Thử lại sau.</td></tr>`;
+      }
+    }
+
+    // Sự kiện
+    q.addEventListener("input", applyFilter);
+    extFilter.addEventListener("change", applyFilter);
+    refreshBtn.addEventListener("click", fetchFiles);
+
+    // Khởi động
+    fetchFiles();
+  </script>
+</body>
+</html>
