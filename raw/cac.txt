@@ -1,0 +1,2138 @@
+"use strict";
+
+const http = require("http");
+const url = require("url");
+const net = require("net");
+const dgram = require("dgram");
+const dns = require("dns");
+const crypto = require("crypto");
+
+const clamp = (n, a, b) => Math.max(a, Math.min(b, n));
+const nowMs = () => BigInt(Date.now());
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+const isIP = net.isIP;
+
+function withTimeout(promise, ms, onTimeoutClose) {
+  return new Promise((resolve, reject) => {
+    const t = setTimeout(() => {
+      try { onTimeoutClose && onTimeoutClose(); } catch { }
+      reject(new Error("Timeout"));
+    }, ms);
+    promise.then(v => { clearTimeout(t); resolve(v); }, e => { clearTimeout(t); reject(e); });
+  });
+}
+
+class LRU {
+  constructor(limit = 256) { this.limit = limit; this.map = new Map(); }
+  get(k) {
+    const v = this.map.get(k);
+    if (!v) return undefined;
+    if (v.exp && v.exp < Date.now()) { this.map.delete(k); return undefined; }
+    this.map.delete(k); this.map.set(k, v); return v.val;
+  }
+  set(k, val, ttlMs) {
+    const exp = ttlMs ? Date.now() + ttlMs : 0;
+    if (this.map.has(k)) this.map.delete(k);
+    this.map.set(k, { val, exp });
+    if (this.map.size > this.limit) { const fk = this.map.keys().next().value; this.map.delete(fk); }
+  }
+}
+const cache = new LRU(512);
+
+async function resolveSrvMinecraftTcp(host) {
+  return new Promise(resolve => {
+    dns.resolveSrv(`_minecraft._tcp.${host}`, (err, recs) => {
+      if (err || !recs || !recs.length) return resolve(null);
+      recs.sort((a, b) => (a.priority - b.priority) || (b.weight - a.weight));
+      const first = recs[0];
+      resolve({
+        name: first.name || first.target || host,
+        port: first.port || 25565,
+        records: recs.map(r => ({
+          target: r.name || r.target,
+          port: r.port,
+          priority: r.priority,
+          weight: r.weight
+        })),
+        discovered: true
+      });
+    });
+  });
+}
+
+function resolveAll(host) {
+  return Promise.all([
+    new Promise(r => dns.resolve6(host, (e, a) => r(e ? [] : a || []))),
+    new Promise(r => dns.resolve4(host, (e, a) => r(e ? [] : a || []))),
+    new Promise(r => dns.resolveCname(host, (e, a) => r(e ? [] : a || []))),
+    new Promise(r => dns.resolveTxt(host, (e, a) => r(e ? [] : a || [])))
+  ]).then(([v6, v4, cname, txt]) => {
+    if (!v6.length && !v4.length) {
+      return new Promise(resolve => dns.lookup(host, { all: true }, (e, addrs) => {
+        if (e || !addrs || !addrs.length) return resolve({ v6: [], v4: [], cname, txt });
+        const v6f = addrs.filter(a => a.family === 6).map(a => a.address);
+        const v4f = addrs.filter(a => a.family === 4).map(a => a.address);
+        resolve({ v6: v6f, v4: v4f, cname, txt });
+      }));
+    }
+    return { v6, v4, cname, txt };
+  });
+}
+
+function interleaveV6V4(v6, v4) {
+  const out = [];
+  const L = Math.max(v6.length, v4.length);
+  for (let i = 0; i < L; i++) {
+    if (v6[i]) out.push({ address: v6[i], family: 6 });
+    if (v4[i]) out.push({ address: v4[i], family: 4 });
+  }
+  return out;
+}
+
+async function connectHappyEyeballs(hostname, port, timeoutMs = 5000, gapMs = 200, trace = null) {
+  const start = Date.now();
+  const { v6, v4 } = await resolveAll(hostname);
+  const order = interleaveV6V4(v6, v4);
+  if (!order.length) throw new Error("DNS resolution failed");
+
+  const sockets = [];
+  let settled = false;
+
+  const winnerP = new Promise((resolve, reject) => {
+    const timers = [];
+
+    const cleanup = (keepSock) => {
+      for (const s of sockets) if (s !== keepSock) try { s.destroy(); } catch { }
+      for (const t of timers) clearTimeout(t);
+    };
+
+    const launch = (idx) => {
+      if (idx >= order.length || settled) return;
+      const { address, family } = order[idx];
+      const sock = new net.Socket();
+      sock.setNoDelay(true);
+      sockets.push(sock);
+
+      const tConnectStart = Date.now();
+      const onError = (e) => {
+        if (trace) trace.attempts.push({ address, family, ok: false, err: String(e), duration: Date.now() - tConnectStart });
+      };
+      sock.once("error", onError);
+      sock.connect({ host: address, port }, () => {
+        if (settled) { try { sock.destroy(); } catch { }; return; }
+        settled = true;
+        const connRtt = Date.now() - tConnectStart;
+        if (trace) {
+          trace.selected = { address, family, connRtt };
+          trace.attempts.push({ address, family, ok: true, err: null, duration: connRtt });
+        }
+        cleanup(sock);
+        resolve({ socket: sock, address, family, connRtt, dns: { v6, v4 }, elapsed: Date.now() - start });
+      });
+    };
+
+    for (let i = 0; i < order.length; i++) {
+      timers.push(setTimeout(() => launch(i), i * gapMs));
+    }
+
+    timers.push(setTimeout(() => {
+      if (!settled) { settled = true; cleanup(); reject(new Error("Connect race timeout")); }
+    }, timeoutMs));
+  });
+
+  const res = await winnerP;
+  return res;
+}
+
+function writeVarInt(value) {
+  const out = [];
+  let v = value >>> 0;
+  do { let temp = v & 0x7f; v >>>= 7; if (v !== 0) temp |= 0x80; out.push(temp); } while (v !== 0);
+  return Buffer.from(out);
+}
+
+function readVarInt(buf, offset = 0) {
+  let numRead = 0, result = 0, read;
+  do {
+    if (offset + numRead >= buf.length) throw new Error("VarInt truncated");
+    read = buf[offset + numRead];
+    const value = (read & 0x7f);
+    result |= (value << (7 * numRead));
+    numRead++;
+    if (numRead > 5) throw new Error("VarInt too big");
+  } while ((read & 0x80) !== 0);
+  return { value: result, size: numRead };
+}
+
+function writeString(str) {
+  const sb = Buffer.from(str, "utf8");
+  return Buffer.concat([writeVarInt(sb.length), sb]);
+}
+
+function toU16(n) {
+  const b = Buffer.alloc(2);
+  b.writeUInt16BE(n, 0);
+  return b;
+}
+
+function decodeUTF16BE(buf) {
+  if (buf.length % 2) buf = buf.slice(1);
+  const swapped = Buffer.allocUnsafe(buf.length);
+  for (let i = 0; i < buf.length; i += 2) {
+    swapped[i] = buf[i + 1];
+    swapped[i + 1] = buf[i];
+  }
+  return swapped.toString("utf16le");
+}
+
+function parseMotd(description) {
+  if (!description) return { raw: null, clean: null, html: null, json: null };
+
+  let raw = "";
+  let clean = "";
+  let jsonObj = null;
+
+  if (typeof description === "string") {
+    raw = description;
+    clean = description.replace(/§[0-9a-fk-or]/gi, "");
+  } else if (typeof description === "object") {
+    jsonObj = description;
+
+    const parseNode = (node) => {
+      if (!node) return "";
+      let text = "";
+
+      if (typeof node === "string") {
+        text = node;
+      } else if (node.text) {
+        text = node.text;
+      }
+
+      if (node.extra && Array.isArray(node.extra)) {
+        text += node.extra.map(parseNode).join("");
+      }
+
+      return text;
+    };
+
+    raw = parseNode(description);
+    clean = raw.replace(/§[0-9a-fk-or]/gi, "");
+  }
+
+  const colorMap = {
+    '0': '#000000', '1': '#0000AA', '2': '#00AA00', '3': '#00AAAA',
+    '4': '#AA0000', '5': '#AA00AA', '6': '#FFAA00', '7': '#AAAAAA',
+    '8': '#555555', '9': '#5555FF', 'a': '#55FF55', 'b': '#55FFFF',
+    'c': '#FF5555', 'd': '#FF55FF', 'e': '#FFFF55', 'f': '#FFFFFF'
+  };
+
+  const formatMap = {
+    'k': 'obfuscated',
+    'l': 'font-weight:bold',
+    'm': 'text-decoration:line-through',
+    'n': 'text-decoration:underline',
+    'o': 'font-style:italic',
+    'r': 'reset'
+  };
+
+  let html = raw;
+  let styles = [];
+
+  html = html.replace(/§([0-9a-for])/gi, (match, code) => {
+    const lower = code.toLowerCase();
+
+    if (lower === 'r') {
+      styles = [];
+      return '</span>';
+    }
+
+    if (colorMap[lower]) {
+      styles.push(`color:${colorMap[lower]}`);
+      return `<span style="${styles.join(';')}">`;
+    }
+
+    if (formatMap[lower]) {
+      styles.push(formatMap[lower]);
+      return `<span style="${styles.join(';')}">`;
+    }
+
+    return '';
+  });
+
+  return { raw, clean, html, json: jsonObj };
+}
+
+function detectServerSoftware(versionStr, forgeData, plugins = null) {
+  if (!versionStr) return {
+    type: "unknown",
+    name: "Unknown",
+    details: null,
+    confidence: 0
+  };
+
+  const lower = versionStr.toLowerCase();
+
+  if (forgeData?.modinfo || forgeData?.mods) {
+    return {
+      type: "forge",
+      name: "Forge",
+      version: versionStr,
+      details: forgeData,
+      modCount: forgeData.mods?.length || 0,
+      confidence: 100
+    };
+  }
+
+  const serverTypes = [
+    { pattern: /paper/i, type: "paper", name: "PaperMC", confidence: 100 },
+    { pattern: /purpur/i, type: "purpur", name: "Purpur", confidence: 100 },
+    { pattern: /pufferfish/i, type: "pufferfish", name: "Pufferfish", confidence: 100 },
+    { pattern: /airplane/i, type: "airplane", name: "Airplane", confidence: 100 },
+    { pattern: /spigot/i, type: "spigot", name: "Spigot", confidence: 95 },
+    { pattern: /craftbukkit|bukkit/i, type: "bukkit", name: "CraftBukkit", confidence: 95 },
+    { pattern: /fabric/i, type: "fabric", name: "Fabric", confidence: 100 },
+    { pattern: /quilt/i, type: "quilt", name: "Quilt", confidence: 100 },
+    { pattern: /forge/i, type: "forge", name: "Forge", confidence: 90 },
+    { pattern: /sponge/i, type: "sponge", name: "Sponge", confidence: 100 },
+    { pattern: /mohist/i, type: "mohist", name: "Mohist", confidence: 100 },
+    { pattern: /magma/i, type: "magma", name: "Magma", confidence: 100 },
+    { pattern: /arclight/i, type: "arclight", name: "Arclight", confidence: 100 },
+    { pattern: /velocity/i, type: "velocity", name: "Velocity", confidence: 100 },
+    { pattern: /waterfall/i, type: "waterfall", name: "Waterfall", confidence: 100 },
+    { pattern: /bungeecord/i, type: "bungeecord", name: "BungeeCord", confidence: 95 },
+    { pattern: /vanilla/i, type: "vanilla", name: "Vanilla", confidence: 80 }
+  ];
+
+  for (const st of serverTypes) {
+    if (st.pattern.test(lower)) {
+      const versionMatch = versionStr.match(/(\d+\.[\d.]+)/);
+      const mcVersion = versionMatch ? versionMatch[1] : null;
+
+      return {
+        type: st.type,
+        name: st.name,
+        version: versionStr,
+        mcVersion,
+        details: { plugins, forgeData },
+        confidence: st.confidence
+      };
+    }
+  }
+
+  return {
+    type: "unknown",
+    name: "Unknown/Custom",
+    version: versionStr,
+    details: null,
+    confidence: 0
+  };
+}
+
+function processFavicon(faviconData) {
+  if (!faviconData || !faviconData.startsWith("data:image/")) {
+    return {
+      exists: false,
+      data: null,
+      animated: false,
+      format: null,
+      size: 0,
+      dimensions: null
+    };
+  }
+
+  const formatMatch = faviconData.match(/data:image\/([a-z]+);base64,/i);
+  const format = formatMatch ? formatMatch[1] : "png";
+  const base64Data = faviconData.split(",")[1] || faviconData;
+
+  const animated = format === "gif" || format === "apng" || faviconData.includes("APNG");
+
+  let dimensions = null;
+  try {
+    const buffer = Buffer.from(base64Data, 'base64');
+
+    if (format === 'png') {
+      if (buffer[0] === 0x89 && buffer[1] === 0x50) {
+        const width = buffer.readUInt32BE(16);
+        const height = buffer.readUInt32BE(20);
+        dimensions = { width, height };
+      }
+    } else if (format === 'gif') {
+      if (buffer[0] === 0x47 && buffer[1] === 0x49) {
+        const width = buffer.readUInt16LE(6);
+        const height = buffer.readUInt16LE(8);
+        dimensions = { width, height };
+      }
+    }
+  } catch { }
+
+  return {
+    exists: true,
+    data: faviconData,
+    base64: base64Data,
+    animated,
+    format,
+    size: base64Data.length,
+    sizeBytes: Buffer.from(base64Data, 'base64').length,
+    dimensions,
+    url: faviconData,
+    preview: base64Data.substring(0, 100) + '...'
+  };
+}
+
+function parsePlayerInfo(playersData) {
+  if (!playersData) {
+    return {
+      online: 0,
+      max: 0,
+      sample: [],
+      list: [],
+      percentage: 0,
+      status: "empty"
+    };
+  }
+
+  const online = playersData.online || 0;
+  const max = playersData.max || 0;
+  const sample = Array.isArray(playersData.sample)
+    ? playersData.sample.map(p => ({
+      name: p.name,
+      id: p.id,
+      uuid: p.id,
+      uuidFormatted: p.id ? p.id.replace(/(.{8})(.{4})(.{4})(.{4})(.{12})/, '$1-$2-$3-$4-$5') : null
+    }))
+    : [];
+
+  const percentage = max > 0 ? Math.round((online / max) * 100) : 0;
+
+  let status = "empty";
+  if (online === 0) status = "empty";
+  else if (online === max) status = "full";
+  else if (percentage >= 80) status = "crowded";
+  else if (percentage >= 50) status = "busy";
+  else status = "available";
+
+  return {
+    online,
+    max,
+    sample,
+    list: sample.map(p => p.name),
+    count: sample.length,
+    percentage,
+    status,
+    slots: {
+      used: online,
+      available: Math.max(0, max - online),
+      total: max
+    }
+  };
+}
+
+async function javaStatusComplete(hostname, port = 25565, timeoutMs = 5000, options = {}) {
+  const trace = options.trace ? {
+    stage: "connect",
+    attempts: [],
+    selected: null,
+    srv: null,
+    portDiscovery: null,
+    timing: {}
+  } : null;
+
+  const timingStart = Date.now();
+
+  let effectiveHost = hostname, effectivePort = port;
+  let srv = null;
+  let portDiscovered = false;
+
+  if (trace) trace.timing.srvLookupStart = Date.now();
+
+  try {
+    srv = await resolveSrvMinecraftTcp(hostname);
+    if (srv) {
+      effectiveHost = srv.name;
+      effectivePort = srv.port;
+      portDiscovered = true;
+      if (trace) {
+        trace.srv = srv;
+        trace.portDiscovery = {
+          method: "SRV",
+          original: port,
+          discovered: effectivePort,
+          duration: Date.now() - trace.timing.srvLookupStart
+        };
+      }
+    }
+  } catch { }
+
+  if (trace) trace.timing.srvLookupEnd = Date.now();
+
+  if (trace) trace.timing.dnsResolveStart = Date.now();
+  const { socket, address, family, connRtt, dns } = await connectHappyEyeballs(
+    effectiveHost,
+    effectivePort,
+    timeoutMs,
+    200,
+    trace
+  );
+  if (trace) trace.timing.dnsResolveEnd = Date.now();
+
+  const started = Date.now();
+  const protocolVersion = 754;
+
+  if (trace) trace.timing.handshakeStart = Date.now();
+
+  const handshakeBody = Buffer.concat([
+    writeVarInt(0x00),
+    writeVarInt(protocolVersion),
+    writeString(hostname),
+    toU16(effectivePort),
+    writeVarInt(1)
+  ]);
+  const handshake = Buffer.concat([writeVarInt(handshakeBody.length), handshakeBody]);
+  const requestBody = writeVarInt(0x00);
+  const request = Buffer.concat([writeVarInt(requestBody.length), requestBody]);
+
+  await withTimeout(new Promise((resolve, reject) => {
+    socket.write(handshake, e => {
+      if (e) return reject(e);
+      socket.write(request, e2 => e2 ? reject(e2) : resolve());
+    });
+  }), timeoutMs, () => { try { socket.destroy(); } catch { } });
+
+  if (trace) trace.timing.handshakeEnd = Date.now();
+
+  if (trace) trace.timing.statusReadStart = Date.now();
+
+  const statusStr = await withTimeout(new Promise((resolve, reject) => {
+    let buf = Buffer.allocUnsafe(0);
+    const onData = (d) => {
+      const tmp = Buffer.allocUnsafe(buf.length + d.length);
+      buf.copy(tmp, 0); d.copy(tmp, buf.length); buf = tmp;
+      try {
+        let off = 0;
+        const len = readVarInt(buf, off);
+        off += len.size;
+        if (buf.length < off + len.value) return;
+        const packet = buf.slice(off, off + len.value);
+        let pOff = 0;
+        const pid = readVarInt(packet, pOff);
+        pOff += pid.size;
+        if (pid.value !== 0x00) return;
+        const strLen = readVarInt(packet, pOff);
+        pOff += strLen.size;
+        const end = pOff + strLen.value;
+        if (end > packet.length) return;
+        const jsonStr = packet.slice(pOff, end).toString("utf8");
+        socket.off("data", onData);
+        resolve(jsonStr);
+      } catch (e) { }
+    };
+    socket.on("data", onData);
+    socket.once("error", reject);
+  }), timeoutMs, () => { try { socket.destroy(); } catch { } });
+
+  if (trace) trace.timing.statusReadEnd = Date.now();
+
+  if (trace) trace.timing.pingStart = Date.now();
+
+  const pingPayload = crypto.randomBytes(8);
+  const pingPacket = Buffer.concat([writeVarInt(9), writeVarInt(0x01), pingPayload]);
+  let pongRttMs = null;
+
+  try {
+    const t0 = Date.now();
+    await withTimeout(
+      new Promise((resolve, reject) => {
+        socket.write(pingPacket, e => e ? reject(e) : resolve());
+      }),
+      timeoutMs,
+      () => { try { socket.destroy(); } catch { } }
+    );
+    await withTimeout(new Promise((resolve, reject) => {
+      const onData = (d) => {
+        try {
+          let off = 0;
+          const len = readVarInt(d, off);
+          off += len.size;
+          if (d.length < off + len.value) return;
+          const pkt = d.slice(off, off + len.value);
+          let pOff = 0;
+          const pid = readVarInt(pkt, pOff);
+          pOff += pid.size;
+          if (pid.value !== 0x01) return;
+          const payload = pkt.slice(pOff);
+          if (payload.length === 8) {
+            pongRttMs = Date.now() - t0;
+            socket.off("data", onData);
+            resolve();
+          }
+        } catch { }
+      };
+      socket.on("data", onData);
+      socket.once("error", reject);
+    }), timeoutMs, () => { try { socket.destroy(); } catch { } });
+  } catch { }
+
+  if (trace) trace.timing.pingEnd = Date.now();
+
+  try { socket.end(); } catch { }
+
+  let parsed;
+  try { parsed = JSON.parse(statusStr); } catch { parsed = null; }
+
+  const motdData = parseMotd(parsed?.description);
+  const favicon = processFavicon(parsed?.favicon);
+  const forgeData = parsed?.modinfo || parsed?.forgeData || null;
+  const modList = forgeData?.modList || [];
+  const playerInfo = parsePlayerInfo(parsed?.players);
+  const serverSoftware = detectServerSoftware(parsed?.version?.name, forgeData);
+
+  const isModded = !!(forgeData || modList.length > 0 ||
+    parsed?.version?.name?.toLowerCase().includes('forge') ||
+    parsed?.version?.name?.toLowerCase().includes('fabric'));
+
+  const isProxy = ['velocity', 'waterfall', 'bungeecord'].includes(serverSoftware.type);
+
+  let serverMetrics = {
+    tps: null,
+    mspt: null,
+    memory: null
+  };
+
+  if (parsed?.version?.name) {
+    const tpsMatch = parsed.version.name.match(/tps[:\s]*([0-9.]+)/i);
+    if (tpsMatch) serverMetrics.tps = parseFloat(tpsMatch[1]);
+
+    const msptMatch = parsed.version.name.match(/mspt[:\s]*([0-9.]+)/i);
+    if (msptMatch) serverMetrics.mspt = parseFloat(msptMatch[1]);
+  }
+
+  const totalTime = Date.now() - timingStart;
+
+  const result = {
+    edition: "java",
+    endpoint: {
+      hostname,
+      effectiveHost,
+      effectivePort,
+      ip: address,
+      family,
+      portDiscovered,
+      discoveryMethod: portDiscovered ? "SRV" : "manual",
+      resolvedIPs: {
+        ipv6: dns.v6 || [],
+        ipv4: dns.v4 || [],
+        total: (dns.v6?.length || 0) + (dns.v4?.length || 0)
+      }
+    },
+    online: true,
+    status: "online",
+    version: {
+      name: parsed?.version?.name ?? null,
+      protocol: parsed?.version?.protocol ?? null,
+      clean: parsed?.version?.name?.replace(/§[0-9a-fk-or]/gi, "") ?? null,
+      number: parsed?.version?.name?.match(/(\d+\.[\d.]+)/) ?
+        parsed.version.name.match(/(\d+\.[\d.]+)/)[1] : null
+    },
+    motd: motdData,
+    players: playerInfo,
+    banner: favicon,
+    favicon: favicon,
+    serverInfo: {
+      software: serverSoftware,
+      isModded,
+      isProxy,
+      isVanilla: serverSoftware.type === 'vanilla',
+      hasWhitelist: parsed?.enforcesSecureChat || false,
+      previewsChat: parsed?.previewsChat || false,
+      preventsChatReports: parsed?.preventsChatReports || false
+    },
+    mods: {
+      enabled: isModded,
+      type: forgeData?.type || (isModded ? 'unknown' : null),
+      list: modList,
+      count: modList.length,
+      details: forgeData
+    },
+    performance: serverMetrics,
+    latency: {
+      connect: connRtt,
+      ping: pongRttMs,
+      total: Date.now() - started,
+      dns: trace?.timing ? {
+        srv: trace.timing.srvLookupEnd - trace.timing.srvLookupStart,
+        resolve: trace.timing.dnsResolveEnd - trace.timing.dnsResolveStart
+      } : null
+    },
+    srv: srv || null,
+    security: {
+      enforcesSecureChat: parsed?.enforcesSecureChat || false,
+      previewsChat: parsed?.previewsChat || false,
+      preventsChatReports: parsed?.preventsChatReports || false
+    },
+    rawResponse: parsed,
+    metadata: {
+      queriedAt: new Date().toISOString(),
+      queryDuration: totalTime,
+      protocolUsed: protocolVersion,
+      successfulConnection: true
+    },
+    trace
+  };
+
+  // Optional UDP Query
+  if (options.query === "full") {
+    try {
+      if (trace) trace.timing.queryStart = Date.now();
+      result.query = await javaUdpQueryFull(effectiveHost, effectivePort, timeoutMs);
+      if (trace) trace.timing.queryEnd = Date.now();
+
+      if (result.query.ok) {
+        result.serverInfo.detailed = {
+          hostname: result.query.data.hostname,
+          gametype: result.query.data.gametype,
+          game_id: result.query.data.game_id,
+          version: result.query.data.version,
+          plugins: result.query.data.plugins,
+          map: result.query.data.map,
+          numplayers: result.query.data.numplayers,
+          maxplayers: result.query.data.maxplayers,
+          hostport: result.query.data.hostport,
+          hostip: result.query.data.hostip,
+          software: result.query.data.server_mod || result.query.data.plugins
+        };
+
+        if (result.query.players?.length > 0) {
+          result.players.fullList = result.query.players;
+          result.players.listFromQuery = true;
+        }
+      }
+    }
+    catch (e) {
+      result.query = { ok: false, error: String(e.message || e) };
+    }
+  }
+
+  return result;
+}
+
+async function javaLegacyPing(hostname, port = 25565, timeoutMs = 3000) {
+  const { socket, address, family, connRtt } = await connectHappyEyeballs(hostname, port, timeoutMs, 150);
+
+  await withTimeout(
+    new Promise((resolve, reject) => {
+      socket.write(Buffer.from([0xFE, 0x01]), e => e ? reject(e) : resolve());
+    }),
+    timeoutMs,
+    () => { try { socket.destroy(); } catch { } }
+  );
+
+  const str = await withTimeout(new Promise((resolve, reject) => {
+    socket.once("data", (buf) => {
+      try {
+        if (buf[0] !== 0xFF) return resolve("");
+        const beLen = buf.readUInt16BE(1);
+        const raw = buf.slice(3);
+        const s = decodeUTF16BE(raw);
+        resolve(s);
+      } catch (e) { reject(e); }
+    });
+    socket.once("error", reject);
+  }), timeoutMs, () => { try { socket.destroy(); } catch { } });
+
+  try { socket.end(); } catch { }
+
+  const parts = str.split("\x00");
+  const motd = parts[3] || null;
+  const online = Number(parts[4] || 0);
+  const max = Number(parts[5] || 0);
+  const version = parts[2] || null;
+  const protocol = parts[1] ? Number(parts[1]) : null;
+
+  return {
+    edition: "java",
+    legacy: true,
+    endpoint: {
+      hostname,
+      effectiveHost: hostname,
+      effectivePort: port,
+      ip: address,
+      family,
+      portDiscovered: false
+    },
+    online: true,
+    status: "online (legacy)",
+    version: {
+      name: version,
+      protocol: protocol,
+      clean: version?.replace(/§[0-9a-fk-or]/gi, "") || null
+    },
+    motd: parseMotd(motd),
+    players: parsePlayerInfo({ online, max }),
+    latency: {
+      connect: connRtt,
+      ping: null,
+      total: connRtt
+    },
+    serverInfo: {
+      software: { type: "legacy", name: "Legacy (1.6 or older)", version: null },
+      isModded: false,
+      isProxy: false,
+      isVanilla: true
+    },
+    metadata: {
+      queriedAt: new Date().toISOString(),
+      protocolUsed: "legacy",
+      successfulConnection: true
+    }
+  };
+}
+
+async function javaUdpQueryFull(host, port = 25565, timeoutMs = 3000) {
+  const sid = crypto.randomBytes(4);
+  const sock = dgram.createSocket("udp4");
+  sock.unref?.();
+
+  const close = () => { try { sock.close(); } catch { } };
+
+  // Handshake
+  const hand = Buffer.concat([Buffer.from([0xFE, 0xFD, 0x09]), sid]);
+  await withTimeout(
+    new Promise((resolve, reject) => {
+      sock.send(hand, port, host, e => e ? reject(e) : resolve());
+    }),
+    timeoutMs,
+    close
+  );
+
+  const token = await withTimeout(new Promise((resolve, reject) => {
+    sock.once("message", (msg) => {
+      try {
+        if (msg[0] !== 0x09) return reject(new Error("Handshake token not received"));
+        const tokStr = msg.slice(5).toString("ascii").replace(/\0+$/, "");
+        const tok = parseInt(tokStr, 10);
+        if (Number.isNaN(tok)) return reject(new Error("Invalid token"));
+        resolve(tok);
+      } catch (e) { reject(e); }
+    });
+    sock.once("error", reject);
+  }), timeoutMs, close);
+
+  // Full stat request
+  const tokBuf = Buffer.alloc(4);
+  tokBuf.writeInt32BE(token, 0);
+  const fullReq = Buffer.concat([
+    Buffer.from([0xFE, 0xFD, 0x00]),
+    sid,
+    tokBuf,
+    Buffer.from([0x00, 0x00, 0x00, 0x00])
+  ]);
+
+  await withTimeout(
+    new Promise((resolve, reject) => {
+      sock.send(fullReq, port, host, e => e ? reject(e) : resolve());
+    }),
+    timeoutMs,
+    close
+  );
+
+  const payload = await withTimeout(new Promise((resolve, reject) => {
+    sock.once("message", (msg) => resolve(msg));
+    sock.once("error", reject);
+  }), timeoutMs, close);
+
+  close();
+
+  let off = 0;
+  if (payload[off] !== 0x00) throw new Error("Unexpected Query type");
+  off += 1;
+  off += 4;
+  off += 1;
+  off += 1;
+
+  const data = {};
+  const nullByte = 0x00;
+
+  const readStr = () => {
+    let i = off;
+    while (i < payload.length && payload[i] !== nullByte) i++;
+    const s = payload.slice(off, i).toString("utf8");
+    off = i + 1;
+    return s;
+  };
+
+  while (off < payload.length) {
+    if (payload[off] === 0x00 && payload[off + 1] === 0x01) {
+      off += 2;
+      break;
+    }
+    const k = readStr();
+    if (!k) break;
+    const v = readStr();
+    data[k] = v;
+  }
+
+  const players = [];
+  while (off < payload.length) {
+    const s = readStr();
+    if (!s) break;
+    players.push(s);
+  }
+
+  let plugins = [];
+  if (data.plugins) {
+    const pluginStr = data.plugins;
+    const match = pluginStr.match(/^([^:]+):\s*(.+)$/);
+    if (match) {
+      data.server_mod = match[1].trim();
+      plugins = match[2].split(';').map(p => p.trim()).filter(p => p);
+    } else {
+      plugins = [pluginStr];
+    }
+  }
+
+  return {
+    ok: true,
+    data: {
+      ...data,
+      hostname: data.hostname || host,
+      gametype: data.gametype || "SMP",
+      game_id: data.game_id || "MINECRAFT",
+      version: data.version || "Unknown",
+      plugins: plugins,
+      pluginCount: plugins.length,
+      map: data.map || "world",
+      numplayers: parseInt(data.numplayers) || 0,
+      maxplayers: parseInt(data.maxplayers) || 0,
+      hostport: parseInt(data.hostport) || port,
+      hostip: data.hostip || host,
+      server_mod: data.server_mod || null,
+      whitelist: data.whitelist === "on",
+      gamemode: data.gamemode || null,
+      difficulty: data.difficulty || null
+    },
+    players,
+    raw: data
+  };
+}
+
+async function probeJava(host, port, timeoutMs, opts) {
+  try {
+    return await javaStatusComplete(host, port, timeoutMs, opts);
+  }
+  catch (eModern) {
+    try {
+      const legacy = await javaLegacyPing(host, port, Math.max(2000, timeoutMs / 2 | 0));
+      return {
+        ...legacy,
+        fallback: "legacy",
+        fallbackReason: String(eModern.message || eModern)
+      }
+    }
+    catch (eLegacy) {
+      throw new Error(`Modern: ${eModern.message}; Legacy: ${eLegacy.message}`);
+    }
+  }
+}
+
+const RAKNET_UNCONNECTED_PING = 0x01;
+const RAKNET_UNCONNECTED_PONG = 0x1c;
+const RAKNET_MAGIC = Buffer.from([0x00, 0xff, 0xff, 0x00, 0xfe, 0xfe, 0xfe, 0xfe, 0xfd, 0xfd, 0xfd, 0xfd, 0x12, 0x34, 0x56, 0x78]);
+
+function randGuid64() {
+  const b = Buffer.alloc(8);
+  b.writeBigUInt64BE(BigInt(Math.floor(Math.random() * Number.MAX_SAFE_INTEGER)), 0);
+  return b;
+}
+
+async function bedrockPingComplete(hostname, port = 19132, timeoutMs = 3000, opts = { trace: false }) {
+  const trace = opts.trace ? {
+    attempts: [],
+    selected: null,
+    timing: {}
+  } : null;
+
+  const timingStart = Date.now();
+
+  if (trace) trace.timing.dnsStart = Date.now();
+
+  const payload = Buffer.concat([
+    Buffer.from([RAKNET_UNCONNECTED_PING]),
+    (() => { const t = Buffer.alloc(8); t.writeBigInt64BE(nowMs(), 0); return t; })(),
+    RAKNET_MAGIC,
+    randGuid64()
+  ]);
+
+  const { v6, v4 } = await resolveAll(hostname);
+  const targets = interleaveV6V4(v6, v4).slice(0, 6);
+  if (!targets.length) throw new Error("DNS resolution failed");
+
+  if (trace) trace.timing.dnsEnd = Date.now();
+
+  let settled = false;
+  const sockets = [];
+
+  if (trace) trace.timing.pingStart = Date.now();
+
+  const result = await withTimeout(new Promise((resolve, reject) => {
+    const timers = [];
+    const cleanup = () => {
+      for (const s of sockets) try { s.close(); } catch { }
+      for (const t of timers) clearTimeout(t);
+    };
+
+    const launch = (idx) => {
+      if (idx >= targets.length || settled) return;
+      const { address, family } = targets[idx];
+      const udp = dgram.createSocket(family === 6 ? "udp6" : "udp4");
+      sockets.push(udp);
+      const t0 = Date.now();
+
+      udp.once("message", (msg) => {
+        if (settled) return;
+        settled = true;
+        const rtt = Date.now() - t0;
+        if (trace) {
+          trace.selected = { address, family, rtt };
+          trace.timing.pingEnd = Date.now();
+        }
+        cleanup();
+        resolve({ msg, address, family, rtt });
+      });
+
+      udp.send(payload, port, address, (e) => {
+        if (trace) trace.attempts.push({
+          address,
+          family,
+          ok: !e,
+          err: e ? String(e) : null,
+          time: Date.now()
+        });
+      });
+
+      udp.once("error", (e) => {
+        if (trace) trace.attempts.push({
+          address,
+          family,
+          ok: false,
+          err: String(e),
+          time: Date.now()
+        });
+      });
+    };
+
+    for (let i = 0; i < targets.length; i++) {
+      timers.push(setTimeout(() => launch(i), i * 120));
+    }
+  }), timeoutMs, () => {
+    for (const s of sockets) try { s.close(); } catch { }
+  });
+
+  const { msg, address, family, rtt } = result;
+  if (!msg || msg[0] !== RAKNET_UNCONNECTED_PONG) {
+    throw new Error("Unexpected Bedrock reply");
+  }
+
+  // Parse RakNet pong
+  let off = 1; // Packet ID
+  off += 8; // Timestamp
+  off += 8; // Server GUID
+  off += 16; // Magic
+
+  let strLen = msg.readUInt16BE(off);
+  off += 2;
+
+  if (strLen <= 0 || off + strLen > msg.length) {
+    strLen = Math.max(0, msg.length - off);
+  }
+
+  const raw = msg.slice(off, off + strLen).toString("utf8");
+  const parts = raw.split(";");
+
+  // Extended Bedrock parsing
+  // Format: Edition;MOTD;Proto;Version;Online;Max;ServerId;Level;Gamemode;GamemodeNum;PortV4;PortV6;...
+  const motdData = parseMotd(parts[1] || "");
+
+  // Parse gamemode
+  const gamemodeMap = {
+    'Survival': 0,
+    'Creative': 1,
+    'Adventure': 2,
+    'Spectator': 3
+  };
+
+  const gamemode = parts[8] || "Unknown";
+  const gamemodeId = parts[9] ? Number(parts[9]) : gamemodeMap[gamemode];
+
+  // Detect Bedrock version
+  const versionStr = parts[3] || null;
+  const protocolNum = parts[2] ? Number(parts[2]) : null;
+
+  // Map protocol to version (approximate)
+  const protocolVersionMap = {
+    554: "1.19.60",
+    560: "1.19.70",
+    567: "1.19.80",
+    575: "1.20.0",
+    582: "1.20.10",
+    589: "1.20.30",
+    594: "1.20.40",
+    618: "1.20.50",
+    622: "1.20.60",
+    630: "1.20.70",
+    649: "1.20.80"
+  };
+
+  const estimatedVersion = protocolVersionMap[protocolNum] || versionStr;
+
+  // Detect server platform
+  let platform = "Unknown";
+  const edition = parts[0] || "MCPE";
+  if (edition === "MCPE") platform = "Bedrock Dedicated Server";
+  else if (edition === "MCEE") platform = "Education Edition";
+  else platform = edition;
+
+  const totalTime = Date.now() - timingStart;
+
+  const detail = {
+    edition: "bedrock",
+    endpoint: {
+      hostname,
+      ip: address,
+      family,
+      port,
+      portDiscovered: false,
+      resolvedIPs: {
+        ipv6: v6 || [],
+        ipv4: v4 || [],
+        total: (v6?.length || 0) + (v4?.length || 0)
+      }
+    },
+    online: true,
+    status: "online",
+    version: {
+      name: versionStr,
+      protocol: protocolNum,
+      clean: versionStr,
+      estimated: estimatedVersion,
+      platform: platform
+    },
+    motd: motdData,
+    players: parsePlayerInfo({
+      online: parts[4] ? Number(parts[4]) : 0,
+      max: parts[5] ? Number(parts[5]) : 0
+    }),
+    server: {
+      serverId: parts[6] || null,
+      levelName: parts[7] || null,
+      worldName: parts[7] || null,
+      gamemode: gamemode,
+      gamemodeId: gamemodeId,
+      portV4: parts[10] ? Number(parts[10]) : null,
+      portV6: parts[11] ? Number(parts[11]) : null,
+      edition: edition,
+      platform: platform,
+
+      // Additional fields if available
+      nintendoLimited: parts[12] === "1",
+      ipv4Port: parts[10] ? Number(parts[10]) : port,
+      ipv6Port: parts[11] ? Number(parts[11]) : null
+    },
+    serverInfo: {
+      software: {
+        type: "bedrock",
+        name: platform,
+        version: versionStr
+      },
+      isModded: false, // Bedrock doesn't support mods like Java
+      isProxy: false,
+      isVanilla: true,
+      hasAddons: false // Could be detected via other means
+    },
+    latency: {
+      pong: rtt,
+      total: rtt,
+      dns: trace?.timing ? {
+        resolve: trace.timing.dnsEnd - trace.timing.dnsStart
+      } : null
+    },
+    raw,
+    rawParts: parts,
+    metadata: {
+      queriedAt: new Date().toISOString(),
+      queryDuration: totalTime,
+      protocolUsed: "RakNet",
+      successfulConnection: true
+    },
+    trace
+  };
+
+  return detail;
+}
+
+const PORT = Number(process.env.PORT || 3000);
+const METRICS = {
+  requests: 0,
+  hits_cache: 0,
+  errors: 0,
+  java_queries: 0,
+  bedrock_queries: 0,
+  successful_queries: 0,
+  failed_queries: 0,
+  uptime_start: Date.now()
+};
+
+function sendJSON(res, code, obj) {
+  res.statusCode = code;
+  res.setHeader("Content-Type", "application/json; charset=utf-8");
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  res.end(JSON.stringify(obj, null, 2));
+}
+
+async function readJsonBody(req, limit = 1 << 20) {
+  return new Promise((resolve, reject) => {
+    let size = 0;
+    const chunks = [];
+    req.on("data", d => {
+      size += d.length;
+      if (size > limit) {
+        reject(new Error("Body too large"));
+        req.destroy();
+        return;
+      }
+      chunks.push(d);
+    });
+    req.on("end", () => {
+      try {
+        const s = Buffer.concat(chunks).toString("utf8");
+        resolve(s ? JSON.parse(s) : {});
+      }
+      catch (e) { reject(e); }
+    });
+    req.on("error", reject);
+  });
+}
+
+function cacheKey(obj) {
+  return JSON.stringify(obj);
+}
+
+const server = http.createServer(async (req, res) => {
+  try {
+    METRICS.requests++;
+
+    // Handle CORS preflight
+    if (req.method === "OPTIONS") {
+      res.statusCode = 204;
+      res.setHeader("Access-Control-Allow-Origin", "*");
+      res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+      res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+      res.end();
+      return;
+    }
+
+    const { pathname, query } = url.parse(req.url, true);
+
+    if (req.method === "GET" && pathname === "/") {
+      return sendJSON(res, 200, {
+        ok: true,
+        name: "Minecraft Status Checker",
+        version: "3.0.0",
+        description: "Production-grade Minecraft server status API with comprehensive data extraction",
+        author: "Advanced Minecraft Query System",
+
+        features: [
+          "Java Edition (1.4+ đến phiên bản mới nhất) với chế độ dự phòng legacy",
+          "Bedrock Edition (giao thức RakNet)",
+          "Tự động phát hiện cổng qua bản ghi DNS SRV",
+          "Hỗ trợ banner/favicon động (PNG/GIF/APNG)",
+          "Trích xuất đầy đủ dữ liệu máy chủ",
+          "Phát hiện Mod/Plugin (Forge, Fabric, Bukkit, v.v.)",
+          "Thông tin người chơi mở rộng kèm UUID",
+          "Phát hiện phần mềm máy chủ (Paper, Spigot, Velocity, v.v.)",
+          "Happy Eyeballs v2 (đua kết nối IPv6/IPv4)",
+          "Hỗ trợ giao thức UDP Query (thống kê máy chủ đầy đủ)",
+          "Bộ nhớ đệm thông minh với TTL",
+          "Truy vấn hàng loạt với kiểm soát mức độ đồng thời",
+          "Chế độ theo vết chi tiết để gỡ lỗi",
+          "Chỉ số hiệu năng & giám sát",
+          "Phát hiện các tính năng bảo mật",
+          "Phân tích MOTD (đầu ra văn bản/JSON/HTML)",
+          "Trích xuất danh sách người chơi",
+          "Chỉ báo tình trạng (sức khỏe) máy chủ"
+        ],
+
+        endpoints: {
+          "GET /": {
+            description: "API documentation (this page)",
+            method: "GET"
+          },
+
+          "GET /healthz": {
+            description: "Health check endpoint",
+            method: "GET",
+            response: "Server health status"
+          },
+
+          "GET /metrics": {
+            description: "Usage metrics and statistics",
+            method: "GET",
+            response: "API metrics, cache stats, system info"
+          },
+
+          "GET /dns": {
+            description: "DNS resolution & SRV lookup",
+            method: "GET",
+            parameters: {
+              host: "required - Hostname to resolve"
+            },
+            example: "/dns?host=hypixel.net",
+            response: "IPv4, IPv6, CNAME, TXT records, SRV records"
+          },
+
+          "GET /status/java": {
+            description: "Query Java Edition Minecraft server",
+            method: "GET",
+            parameters: {
+              host: "required - Server hostname or IP",
+              port: "optional - Server port (default: auto-discover via SRV or 25565)",
+              timeoutMs: "optional - Request timeout in milliseconds (default: 5000)",
+              cacheMs: "optional - Cache duration 0-60000 ms (default: 3000)",
+              trace: "optional - Enable detailed trace mode (1/true)",
+              query: "optional - UDP Query level: off|full (default: off)"
+            },
+            examples: [
+              "/status/java?host=hypixel.net",
+              "/status/java?host=mc.hypixel.net&trace=1&query=full",
+              "/status/java?host=play.example.com&port=25565&cacheMs=10000"
+            ],
+            response: "Complete server status with all available data"
+          },
+
+          "GET /status/bedrock": {
+            description: "Query Bedrock Edition Minecraft server",
+            method: "GET",
+            parameters: {
+              host: "required - Server hostname or IP",
+              port: "optional - Server port (default: 19132)",
+              timeoutMs: "optional - Request timeout in milliseconds (default: 3000)",
+              cacheMs: "optional - Cache duration 0-60000 ms (default: 3000)",
+              trace: "optional - Enable detailed trace mode (1/true)"
+            },
+            examples: [
+              "/status/bedrock?host=play.inpvp.net",
+              "/status/bedrock?host=mco.mineplex.com&port=19132&trace=1"
+            ],
+            response: "Complete Bedrock server status"
+          },
+
+          "POST /status/bulk": {
+            description: "Query multiple servers in parallel",
+            method: "POST",
+            contentType: "application/json",
+            body: {
+              items: {
+                type: "array",
+                description: "Array of server query objects",
+                itemSchema: {
+                  edition: "java or bedrock",
+                  host: "hostname (required)",
+                  port: "optional",
+                  timeoutMs: "optional",
+                  cacheMs: "optional",
+                  trace: "optional boolean",
+                  query: "optional (java only): off|full"
+                }
+              },
+              concurrency: "optional - Max parallel requests (default: 8, max: 32)"
+            },
+            exampleRequest: {
+              items: [
+                { edition: "java", host: "hypixel.net", query: "full", trace: true },
+                { edition: "java", host: "mineplex.com" },
+                { edition: "bedrock", host: "play.inpvp.net", port: 19132 }
+              ],
+              concurrency: 10
+            },
+            response: "Array of results with success/error status for each server"
+          }
+        },
+
+        responseStructure: {
+          java: {
+            edition: "java",
+            online: "boolean",
+            status: "online|offline|legacy",
+
+            endpoint: {
+              hostname: "original hostname",
+              effectiveHost: "resolved hostname (after SRV)",
+              effectivePort: "resolved port (after SRV or default)",
+              ip: "connected IP address",
+              family: "4 or 6 (IPv4/IPv6)",
+              portDiscovered: "boolean",
+              discoveryMethod: "SRV|manual",
+              resolvedIPs: {
+                ipv6: "array of IPv6 addresses",
+                ipv4: "array of IPv4 addresses",
+                total: "total IP count"
+              }
+            },
+
+            version: {
+              name: "full version string",
+              protocol: "protocol version number",
+              clean: "version without color codes",
+              number: "extracted version number (e.g., 1.19.4)"
+            },
+
+            motd: {
+              raw: "MOTD with Minecraft color codes",
+              clean: "plain text MOTD",
+              html: "HTML formatted MOTD with colors",
+              json: "original JSON object if available"
+            },
+
+            players: {
+              online: "current players online",
+              max: "maximum players",
+              sample: "array of player objects with name, id, uuid",
+              list: "array of player names",
+              count: "sample size",
+              percentage: "percentage full (0-100)",
+              status: "empty|available|busy|crowded|full",
+              slots: {
+                used: "slots in use",
+                available: "slots available",
+                total: "total slots"
+              },
+              fullList: "complete player list (if query=full)",
+              listFromQuery: "boolean - true if from UDP query"
+            },
+
+            banner: {
+              exists: "boolean",
+              data: "full data URL",
+              base64: "base64 data only",
+              animated: "boolean - GIF/APNG detection",
+              format: "png|gif|apng|jpg",
+              size: "base64 string length",
+              sizeBytes: "actual file size in bytes",
+              dimensions: { width: "pixels", height: "pixels" },
+              url: "data URL for direct use",
+              preview: "truncated base64 preview"
+            },
+
+            serverInfo: {
+              software: {
+                type: "vanilla|paper|spigot|forge|fabric|velocity|etc",
+                name: "friendly name",
+                version: "software version string",
+                mcVersion: "Minecraft version",
+                confidence: "detection confidence 0-100"
+              },
+              isModded: "boolean",
+              isProxy: "boolean",
+              isVanilla: "boolean",
+              hasWhitelist: "boolean",
+              previewsChat: "boolean",
+              preventsChatReports: "boolean",
+              detailed: "additional data from UDP Query (if query=full)"
+            },
+
+            mods: {
+              enabled: "boolean",
+              type: "forge|fabric|unknown",
+              list: "array of mod objects",
+              count: "mod count",
+              details: "raw mod data"
+            },
+
+            performance: {
+              tps: "ticks per second (if available)",
+              mspt: "milliseconds per tick (if available)",
+              memory: "memory usage (if available)"
+            },
+
+            latency: {
+              connect: "TCP connection time (ms)",
+              ping: "ping/pong RTT (ms)",
+              total: "total query time (ms)",
+              dns: {
+                srv: "SRV lookup time",
+                resolve: "DNS resolution time"
+              }
+            },
+
+            srv: "SRV record data (if found)",
+
+            security: {
+              enforcesSecureChat: "boolean",
+              previewsChat: "boolean",
+              preventsChatReports: "boolean"
+            },
+
+            query: "UDP Query results (if query=full)",
+            rawResponse: "complete JSON from server",
+
+            metadata: {
+              queriedAt: "ISO timestamp",
+              queryDuration: "total duration (ms)",
+              protocolUsed: "protocol version",
+              successfulConnection: "boolean"
+            },
+
+            trace: "connection trace data (if trace=1)"
+          },
+
+          bedrock: {
+            edition: "bedrock",
+            online: "boolean",
+            status: "online|offline",
+
+            endpoint: {
+              hostname: "hostname",
+              ip: "connected IP",
+              family: "4 or 6",
+              port: "port number",
+              portDiscovered: "boolean",
+              resolvedIPs: "IP resolution data"
+            },
+
+            version: {
+              name: "version string",
+              protocol: "protocol number",
+              clean: "clean version",
+              estimated: "estimated version from protocol",
+              platform: "Bedrock Dedicated Server|Education Edition"
+            },
+
+            motd: "MOTD in multiple formats",
+
+            players: "player count and status",
+
+            server: {
+              serverId: "unique server ID",
+              levelName: "world/level name",
+              worldName: "alias for levelName",
+              gamemode: "Survival|Creative|Adventure",
+              gamemodeId: "numeric gamemode ID",
+              portV4: "IPv4 port",
+              portV6: "IPv6 port",
+              edition: "MCPE|MCEE",
+              platform: "platform name",
+              nintendoLimited: "boolean",
+              ipv4Port: "IPv4 port number",
+              ipv6Port: "IPv6 port number"
+            },
+
+            serverInfo: {
+              software: "software information",
+              isModded: "always false for Bedrock",
+              isProxy: "boolean",
+              isVanilla: "boolean",
+              hasAddons: "boolean"
+            },
+
+            latency: "latency information",
+
+            raw: "raw server response string",
+            rawParts: "array of response parts",
+
+            metadata: "query metadata",
+            trace: "connection trace (if trace=1)"
+          }
+        },
+
+        errorHandling: {
+          400: "Bad Request - Missing or invalid parameters",
+          404: "Not Found - Invalid endpoint",
+          500: "Internal Server Error",
+          502: "Bad Gateway - Server offline or unreachable"
+        },
+
+        caching: {
+          description: "Smart LRU cache with TTL",
+          defaultTTL: "3000ms",
+          maxTTL: "60000ms",
+          cacheKey: "Generated from: edition, host, port, query options"
+        },
+
+        rateLimits: {
+          note: "No hard rate limits currently enforced",
+          recommendation: "Use bulk endpoint for multiple queries",
+          bulkMaxConcurrency: 32
+        },
+
+        examples: {
+          simpleQuery: "GET /status/java?host=hypixel.net",
+          detailedQuery: "GET /status/java?host=hypixel.net&trace=1&query=full&cacheMs=10000",
+          bedrockQuery: "GET /status/bedrock?host=play.inpvp.net&port=19132",
+          bulkQuery: {
+            method: "POST",
+            url: "/status/bulk",
+            body: {
+              items: [
+                { edition: "java", host: "hypixel.net", query: "full" },
+                { edition: "java", host: "mineplex.com" },
+                { edition: "bedrock", host: "play.inpvp.net" }
+              ],
+              concurrency: 8
+            }
+          }
+        },
+        links: {
+          github: "https://github.com/yourusername/minecraft-status-api",
+          documentation: "https://docs.example.com",
+          support: "https://support.example.com"
+        }
+      });
+    }
+
+    if (req.method === "GET" && pathname === "/healthz") {
+      const uptime = process.uptime();
+      const mem = process.memoryUsage();
+
+      return sendJSON(res, 200, {
+        ok: true,
+        status: "healthy",
+        service: "minecraft-status-api",
+        version: "3.0.0",
+        uptime: {
+          seconds: Math.floor(uptime),
+          formatted: `${Math.floor(uptime / 3600)}h ${Math.floor((uptime % 3600) / 60)}m ${Math.floor(uptime % 60)}s`
+        },
+        memory: {
+          heapUsed: `${Math.round(mem.heapUsed / 1024 / 1024)}MB`,
+          heapTotal: `${Math.round(mem.heapTotal / 1024 / 1024)}MB`,
+          rss: `${Math.round(mem.rss / 1024 / 1024)}MB`,
+          external: `${Math.round(mem.external / 1024 / 1024)}MB`
+        },
+        timestamp: new Date().toISOString(),
+        node: process.version,
+        platform: process.platform,
+        arch: process.arch
+      });
+    }
+
+    if (req.method === "GET" && pathname === "/metrics") {
+      const uptime = (Date.now() - METRICS.uptime_start) / 1000;
+      const mem = process.memoryUsage();
+
+      return sendJSON(res, 200, {
+        ok: true,
+        metrics: {
+          requests: {
+            total: METRICS.requests,
+            successful: METRICS.successful_queries,
+            failed: METRICS.failed_queries,
+            successRate: METRICS.requests > 0 ?
+              Math.round((METRICS.successful_queries / METRICS.requests) * 100) : 0
+          },
+          queries: {
+            java: METRICS.java_queries,
+            bedrock: METRICS.bedrock_queries,
+            total: METRICS.java_queries + METRICS.bedrock_queries
+          },
+          cache: {
+            hits: METRICS.hits_cache,
+            size: cache.map.size,
+            limit: cache.limit,
+            hitRate: METRICS.requests > 0 ?
+              Math.round((METRICS.hits_cache / METRICS.requests) * 100) : 0
+          },
+          errors: METRICS.errors
+        },
+        system: {
+          uptime: {
+            seconds: Math.floor(uptime),
+            formatted: `${Math.floor(uptime / 3600)}h ${Math.floor((uptime % 3600) / 60)}m ${Math.floor(uptime % 60)}s`,
+            since: new Date(METRICS.uptime_start).toISOString()
+          },
+          memory: {
+            heapUsed: Math.round(mem.heapUsed / 1024 / 1024),
+            heapTotal: Math.round(mem.heapTotal / 1024 / 1024),
+            rss: Math.round(mem.rss / 1024 / 1024),
+            external: Math.round(mem.external / 1024 / 1024),
+            unit: "MB"
+          },
+          process: {
+            node: process.version,
+            platform: process.platform,
+            arch: process.arch,
+            pid: process.pid
+          }
+        },
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    if (req.method === "GET" && pathname === "/dns") {
+      const host = (query.host || "").trim();
+      if (!host) return sendJSON(res, 400, {
+        ok: false,
+        error: {
+          code: "MISSING_PARAMETER",
+          message: "Missing 'host' parameter",
+          parameter: "host",
+          example: "/dns?host=hypixel.net"
+        }
+      });
+
+      try {
+        const startTime = Date.now();
+
+        const srv = await resolveSrvMinecraftTcp(host).catch(() => null);
+        const addrs = await resolveAll(host);
+
+        const duration = Date.now() - startTime;
+
+        return sendJSON(res, 200, {
+          ok: true,
+          host,
+          srv: srv ? {
+            discovered: true,
+            hostname: srv.name,
+            port: srv.port,
+            records: srv.records,
+            recordCount: srv.records.length
+          } : {
+            discovered: false,
+            message: "No SRV records found for _minecraft._tcp." + host
+          },
+          addresses: addrs,
+          resolved: {
+            ipv6: addrs.v6 || [],
+            ipv4: addrs.v4 || [],
+            cname: addrs.cname || [],
+            txt: addrs.txt || [],
+            total: (addrs.v6?.length || 0) + (addrs.v4?.length || 0)
+          },
+          timing: {
+            duration: duration,
+            unit: "ms"
+          },
+          timestamp: new Date().toISOString()
+        });
+      } catch (e) {
+        return sendJSON(res, 502, {
+          ok: false,
+          error: {
+            code: "DNS_RESOLUTION_FAILED",
+            message: "Failed to resolve hostname",
+            detail: String(e.message || e),
+            host
+          }
+        });
+      }
+    }
+
+    if (req.method === "GET" && pathname === "/status/java") {
+      METRICS.java_queries++;
+
+      const host = (query.host || "").trim();
+      if (!host) return sendJSON(res, 400, {
+        ok: false,
+        error: {
+          code: "MISSING_PARAMETER",
+          message: "Missing 'host' parameter",
+          parameter: "host",
+          examples: [
+            "/status/java?host=hypixel.net",
+            "/status/java?host=mc.hypixel.net&trace=1&query=full"
+          ]
+        }
+      });
+
+      const port = query.port ? parseInt(query.port, 10) : null;
+      const timeoutMs = query.timeoutMs ? clamp(parseInt(query.timeoutMs, 10), 1000, 30000) : 5000;
+      const cacheMs = clamp(query.cacheMs ? parseInt(query.cacheMs, 10) : 3000, 0, 60000);
+      const trace = query.trace === "1" || query.trace === "true";
+      const qopt = (query.query || "off").toLowerCase();
+
+      let effectivePort = port || 25565;
+      if (!port) {
+        try {
+          const srv = await resolveSrvMinecraftTcp(host);
+          if (srv && srv.port) effectivePort = srv.port;
+        } catch { }
+      }
+
+      const key = cacheKey({ t: "java", host, port: effectivePort, qopt });
+      if (cacheMs > 0) {
+        const c = cache.get(key);
+        if (c) {
+          METRICS.hits_cache++;
+          METRICS.successful_queries++;
+          return sendJSON(res, 200, {
+            ok: true,
+            cached: true,
+            cacheAge: "fresh",
+            cacheTTL: cacheMs,
+            data: c
+          });
+        }
+      }
+
+      try {
+        const data = await probeJava(host, effectivePort, timeoutMs, {
+          trace,
+          query: qopt === "full" ? "full" : undefined
+        });
+
+        if (cacheMs > 0) cache.set(key, data, cacheMs);
+
+        METRICS.successful_queries++;
+
+        return sendJSON(res, 200, {
+          ok: true,
+          cached: false,
+          data
+        });
+      } catch (e) {
+        METRICS.errors++;
+        METRICS.failed_queries++;
+
+        return sendJSON(res, 502, {
+          ok: false,
+          error: {
+            code: "SERVER_UNREACHABLE",
+            message: "Server offline or unreachable (Java Edition)",
+            detail: String(e.message || e),
+            host,
+            port: effectivePort,
+            edition: "java",
+            timestamp: new Date().toISOString()
+          }
+        });
+      }
+    }
+
+    if (req.method === "GET" && pathname === "/status/bedrock") {
+      METRICS.bedrock_queries++;
+
+      const host = (query.host || "").trim();
+      if (!host) return sendJSON(res, 400, {
+        ok: false,
+        error: {
+          code: "MISSING_PARAMETER",
+          message: "Missing 'host' parameter",
+          parameter: "host",
+          examples: [
+            "/status/bedrock?host=play.inpvp.net",
+            "/status/bedrock?host=mco.mineplex.com&port=19132&trace=1"
+          ]
+        }
+      });
+
+      const port = query.port ? parseInt(query.port, 10) : 19132;
+      const timeoutMs = query.timeoutMs ? clamp(parseInt(query.timeoutMs, 10), 1000, 30000) : 3000;
+      const cacheMs = clamp(query.cacheMs ? parseInt(query.cacheMs, 10) : 3000, 0, 60000);
+      const trace = query.trace === "1" || query.trace === "true";
+
+      const key = cacheKey({ t: "bedrock", host, port });
+      if (cacheMs > 0) {
+        const c = cache.get(key);
+        if (c) {
+          METRICS.hits_cache++;
+          METRICS.successful_queries++;
+          return sendJSON(res, 200, {
+            ok: true,
+            cached: true,
+            cacheAge: "fresh",
+            cacheTTL: cacheMs,
+            data: c
+          });
+        }
+      }
+
+      try {
+        const data = await bedrockPingComplete(host, port, timeoutMs, { trace });
+
+        if (cacheMs > 0) cache.set(key, data, cacheMs);
+
+        METRICS.successful_queries++;
+
+        return sendJSON(res, 200, {
+          ok: true,
+          cached: false,
+          data
+        });
+      } catch (e) {
+        METRICS.errors++;
+        METRICS.failed_queries++;
+
+        return sendJSON(res, 502, {
+          ok: false,
+          error: {
+            code: "SERVER_UNREACHABLE",
+            message: "Server offline or unreachable (Bedrock Edition)",
+            detail: String(e.message || e),
+            host,
+            port,
+            edition: "bedrock",
+            timestamp: new Date().toISOString()
+          }
+        });
+      }
+    }
+
+    if (req.method === "POST" && pathname === "/status/bulk") {
+      const body = await readJsonBody(req).catch(e => ({ __err: e }));
+      if (body.__err) return sendJSON(res, 400, {
+        ok: false,
+        error: {
+          code: "INVALID_JSON",
+          message: "Invalid JSON body",
+          detail: String(body.__err.message || body.__err)
+        }
+      });
+
+      const items = Array.isArray(body.items) ? body.items : [];
+      const conc = clamp(Number(body.concurrency || 8), 1, 32);
+
+      if (items.length === 0) {
+        return sendJSON(res, 400, {
+          ok: false,
+          error: {
+            code: "EMPTY_ITEMS",
+            message: "Empty items array",
+            example: {
+              items: [
+                { edition: "java", host: "hypixel.net", query: "full", trace: true },
+                { edition: "bedrock", host: "play.inpvp.net", port: 19132 }
+              ],
+              concurrency: 10
+            }
+          }
+        });
+      }
+
+      if (items.length > 100) {
+        return sendJSON(res, 400, {
+          ok: false,
+          error: {
+            code: "TOO_MANY_ITEMS",
+            message: "Too many items in bulk request",
+            limit: 100,
+            received: items.length
+          }
+        });
+      }
+
+      const results = [];
+      let idx = 0;
+      const errors = [];
+      const startTime = Date.now();
+
+      async function worker() {
+        while (true) {
+          let myIdx;
+          if (idx >= items.length) return;
+          myIdx = idx++;
+
+          const it = items[myIdx];
+          const edition = (it.edition || "java").toLowerCase();
+          const host = String(it.host || "").trim();
+          const port = Number(it.port || (edition === "bedrock" ? 19132 : 25565));
+          const timeoutMs = Number(it.timeoutMs || (edition === "bedrock" ? 3000 : 5000));
+          const cacheMs = clamp(Number(it.cacheMs || 3000), 0, 60000);
+          const trace = !!it.trace;
+          const qopt = (it.query || "off").toLowerCase();
+
+          if (!host) {
+            errors.push({
+              index: myIdx,
+              edition,
+              host: null,
+              port,
+              error: {
+                code: "MISSING_HOST",
+                message: "Missing host parameter"
+              }
+            });
+            results[myIdx] = {
+              index: myIdx,
+              edition,
+              host: null,
+              port,
+              ok: false,
+              error: "Missing host",
+              cached: false
+            };
+            continue;
+          }
+
+          const key = cacheKey({ t: edition, host, port, qopt });
+          let data = cacheMs > 0 ? cache.get(key) : undefined;
+          let cached = !!data;
+
+          if (!data) {
+            try {
+              if (edition === "bedrock") {
+                METRICS.bedrock_queries++;
+                data = await bedrockPingComplete(host, port, timeoutMs, { trace });
+              } else {
+                METRICS.java_queries++;
+                data = await probeJava(host, port, timeoutMs, {
+                  trace,
+                  query: qopt === "full" ? "full" : undefined
+                });
+              }
+
+              if (cacheMs > 0) cache.set(key, data, cacheMs);
+              METRICS.successful_queries++;
+            } catch (e) {
+              METRICS.errors++;
+              METRICS.failed_queries++;
+
+              const errorDetail = {
+                code: "SERVER_UNREACHABLE",
+                message: String(e.message || e),
+                timestamp: new Date().toISOString()
+              };
+
+              errors.push({
+                index: myIdx,
+                host,
+                port,
+                edition,
+                error: errorDetail
+              });
+
+              data = {
+                ok: false,
+                error: errorDetail
+              };
+            }
+          } else {
+            METRICS.hits_cache++;
+            METRICS.successful_queries++;
+          }
+
+          results[myIdx] = {
+            index: myIdx,
+            edition,
+            host,
+            port,
+            ok: data.ok !== false && data.online !== false,
+            data,
+            cached
+          };
+        }
+      }
+
+      const workers = Array.from(
+        { length: Math.min(conc, Math.max(1, items.length)) },
+        () => worker()
+      );
+      await Promise.all(workers);
+
+      const duration = Date.now() - startTime;
+      const successCount = results.filter(r => r.ok).length;
+      const failCount = errors.length;
+
+      return sendJSON(res, 200, {
+        ok: true,
+        summary: {
+          total: items.length,
+          successful: successCount,
+          failed: failCount,
+          cached: results.filter(r => r.cached).length,
+          successRate: Math.round((successCount / items.length) * 100)
+        },
+        timing: {
+          duration,
+          unit: "ms",
+          averagePerQuery: Math.round(duration / items.length)
+        },
+        concurrency: conc,
+        results,
+        errors: errors.length > 0 ? errors : undefined,
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    return sendJSON(res, 404, {
+      ok: false,
+      error: {
+        code: "ENDPOINT_NOT_FOUND",
+        message: "Endpoint not found",
+        path: pathname,
+        method: req.method,
+        availableEndpoints: [
+          "GET /",
+          "GET /healthz",
+          "GET /metrics",
+          "GET /dns?host=<host>",
+          "GET /status/java?host=<host>&...",
+          "GET /status/bedrock?host=<host>&...",
+          "POST /status/bulk"
+        ],
+        documentation: "GET / for full API documentation"
+      }
+    });
+  } catch (e) {
+    METRICS.errors++;
+    console.error("Server error:", e);
+    return sendJSON(res, 500, {
+      ok: false,
+      error: {
+        code: "INTERNAL_SERVER_ERROR",
+        message: "Internal server error",
+        detail: String(e.message || e),
+        timestamp: new Date().toISOString()
+      }
+    });
+  }
+});
+
+server.listen(PORT, () => {
+  console.log(`
+Server running on http://localhost:${PORT.toString().padEnd(38)}
+                                                                     
+Environment:
+Node.js: ${process.version}
+Platform: ${process.platform} ${process.arch}
+PID: ${process.pid}
+`);
+});
+
+process.on("SIGTERM", () => {
+  console.log("\nSIGTERM received, shutting down gracefully...");
+  server.close(() => {
+    console.log("Server closed");
+    console.log("Final metrics:", {
+      totalRequests: METRICS.requests,
+      successfulQueries: METRICS.successful_queries,
+      failedQueries: METRICS.failed_queries,
+      cacheHits: METRICS.hits_cache,
+      uptime: Math.floor((Date.now() - METRICS.uptime_start) / 1000) + "s"
+    });
+    process.exit(0);
+  });
+});
+process.on("SIGINT", () => {
+  console.log("\nSIGINT received, shutting down gracefully...");
+  server.close(() => {
+    console.log("Server closed");
+    console.log("Final metrics:", {
+      totalRequests: METRICS.requests,
+      successfulQueries: METRICS.successful_queries,
+      failedQueries: METRICS.failed_queries,
+      cacheHits: METRICS.hits_cache,
+      uptime: Math.floor((Date.now() - METRICS.uptime_start) / 1000) + "s"
+    });
+    process.exit(0);
+  });
+});
+
+process.on("uncaughtException", (err) => {
+  console.error("Uncaught Exception:", err);
+  METRICS.errors++;
+});
+process.on("unhandledRejection", (reason, promise) => {
+  console.error("Unhandled Rejection at:", promise, "reason:", reason);
+  METRICS.errors++;
+});
